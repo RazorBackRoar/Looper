@@ -1,0 +1,7 @@
+build/
+Looper.app
+.DS_Store
+xcuserdata/
+*.xcuserstate
+DerivedData/
+.cursor/
