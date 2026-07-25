@@ -8,6 +8,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar.
 - Target 120 Hz for scrub/UI/playhead feel; play content at native 30/60 fps — do not fake 120 fps video.
 - App icon is orange and white (high-resolution `.icns` / 1024×1024 source).
+- Icon must sit at the same visual weight as the sibling apps: an 824×824 squircle centred in a 1024 canvas, plus a soft black drop shadow (blur 5, offset +10, peak alpha 80) — identical to MetaBurn / L!bra. Keep `IconSource.png`'s own colours; do not re-grade the chrome or orange.
 - Video should fill the window (no letterbox black bars); scrub controls should overlay the video QuickTime-style (not a separate pane under the video).
 - Scroll wheel: up = seek forward; down = rewind.
 - Window must stay resizable — player/poster views must not lock window size.

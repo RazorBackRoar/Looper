@@ -1,126 +1,85 @@
 #!/Users/home/.local/bin/python3.14
-"""Build Looper.icns + asset catalog from IconSource.png."""
+"""Build Looper.icns + asset catalog from IconSource.png.
+
+IconSource.png is a 1024x1024 RGB export with a checkerboard "transparency"
+pattern baked in, and its squircle only covers ~676px of that canvas. The body
+is isolated from the checkerboard, scaled onto the 824x824 macOS icon grid and
+re-shadowed so Looper sits at the same visual weight as the sibling apps
+(MetaBurn / L!bra) in the Dock.
+"""
 from __future__ import annotations
 
-import math
 import subprocess
 import sys
 from pathlib import Path
 
-from PIL import Image
+from PIL import Image, ImageChops, ImageDraw, ImageFilter
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SOURCE = ROOT / "IconSource.png"
+
 CANVAS = 1024
-# Match MetaBurn / Libra Finder scale (~82% opaque fill).
-FILL = 0.82
-SQUIRCLE_N = 4.5
+BODY = 824  # Apple's macOS grid: an 824x824 squircle inside a 1024 canvas.
+MARGIN = (CANVAS - BODY) // 2
+
+# The baked checkerboard is achromatic and light; artwork is neither.
+BG_CHROMA = 18
+BG_VALUE = 200
+
+# Drop shadow matched to MetaBurn / L!bra.
+SHADOW_BLUR = 5
+SHADOW_OFFSET = 10
+SHADOW_ALPHA = 80
 
 
-def clean_background(im: Image.Image) -> Image.Image:
-    px = im.load()
-    w, h = im.size
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a < 20:
-                px[x, y] = (0, 0, 0, 0)
-                continue
-            gray = abs(r - g) < 10 and abs(g - b) < 10
-            if gray and 160 <= r <= 220:
-                px[x, y] = (0, 0, 0, 0)
-            elif r + g + b < 40:
-                px[x, y] = (0, 0, 0, 0)
-            elif r > 230 and g > 230 and b > 230:
-                px[x, y] = (0, 0, 0, 0)
-            elif r > 210 and g > 210 and b > 210 and max(r, g, b) - min(r, g, b) < 25:
-                px[x, y] = (0, 0, 0, 0)
-    return im
+def background_mask(im: Image.Image) -> Image.Image:
+    """White where a pixel looks like the baked checkerboard."""
+    r, g, b = im.split()
+    hi = ImageChops.lighter(ImageChops.lighter(r, g), b)
+    lo = ImageChops.darker(ImageChops.darker(r, g), b)
+    flat = ImageChops.subtract(hi, lo).point(lambda v: 255 if v <= BG_CHROMA else 0)
+    light = lo.point(lambda v: 255 if v >= BG_VALUE else 0)
+    return ImageChops.multiply(flat, light)
 
 
-def content_bbox(im: Image.Image) -> tuple[int, int, int, int]:
-    px = im.load()
-    w, h = im.size
-    minx, miny, maxx, maxy = w, h, 0, 0
-    for y in range(h):
-        for x in range(w):
-            if px[x, y][3] > 10:
-                minx = min(minx, x)
-                miny = min(miny, y)
-                maxx = max(maxx, x)
-                maxy = max(maxy, y)
-    if maxx < minx:
-        raise ValueError("icon artwork is empty after background cleanup")
-    return minx, miny, maxx, maxy
+def body_mask(im: Image.Image) -> Image.Image:
+    """White over the squircle, including its specular highlights."""
+    outside = background_mask(im)
+    # Only checkerboard reachable from a corner is really outside; the chrome
+    # knot's near-white speculars are enclosed by the squircle and must stay.
+    ImageDraw.floodfill(outside, (0, 0), 64, thresh=0)
+    mask = outside.point(lambda v: 0 if v == 64 else 255)
 
+    # Keep just the component under the centre so shadow/compression specks
+    # cannot inflate the bounding box.
+    ImageDraw.floodfill(mask, (im.width // 2, im.height // 2), 100, thresh=0)
+    mask = mask.point(lambda v: 255 if v == 100 else 0)
 
-def is_orange(r: int, g: int, b: int, a: int) -> bool:
-    return a > 50 and r > 125 and g > 50 and b < 115 and r > g * 1.02 and (r - b) > 40
-
-
-def chrome_metal_grade(im: Image.Image) -> Image.Image:
-    """Lift knot shadows from black into reflective chrome tones."""
-    px = im.load()
-    w, h = im.size
-    for y in range(h):
-        for x in range(w):
-            r, g, b, a = px[x, y]
-            if a < 20 or is_orange(r, g, b, a):
-                continue
-
-            lum = 0.2126 * r + 0.7152 * g + 0.0722 * b
-            t = max(0.0, min(1.0, lum / 255.0))
-
-            # Darkest chrome ~118; keep bright speculars near white.
-            lifted = 118 + 137 * (t**0.5)
-            nr = lifted * 0.9 + 18
-            ng = lifted * 0.95 + 14
-            nb = lifted * 1.08 + 22
-
-            blend = 0.82
-            px[x, y] = (
-                int(min(255, blend * nr + (1 - blend) * r)),
-                int(min(255, blend * ng + (1 - blend) * g)),
-                int(min(255, blend * nb + (1 - blend) * b)),
-                a,
-            )
-    return im
-
-
-def apply_squircle_mask(im: Image.Image, half: float) -> Image.Image:
-    px = im.load()
-    cx = cy = CANVAS / 2
-    for y in range(CANVAS):
-        for x in range(CANVAS):
-            dx, dy = x - cx, y - cy
-            theta = math.atan2(dy, dx)
-            ct, st = math.cos(theta), math.sin(theta)
-            edge = ((abs(ct) / half) ** SQUIRCLE_N + (abs(st) / half) ** SQUIRCLE_N) ** (-1.0 / SQUIRCLE_N)
-            r = math.hypot(dx, dy)
-            if r > edge:
-                px[x, y] = (0, 0, 0, 0)
-            elif r > edge - 2:
-                t = max(0.0, min(1.0, (edge - r) / 2.0))
-                c = px[x, y]
-                px[x, y] = (c[0], c[1], c[2], int(c[3] * t))
-    return im
+    # Erode 1px to drop the row of pixels the export blended into the checker.
+    return mask.filter(ImageFilter.MinFilter(3))
 
 
 def master_from_source(path: Path) -> Image.Image:
-    im = clean_background(Image.open(path).convert("RGBA"))
-    minx, miny, maxx, maxy = content_bbox(im)
-    cropped = im.crop((minx, miny, maxx + 1, maxy + 1))
+    src = Image.open(path).convert("RGB")
+    mask = body_mask(src)
+    box = mask.getbbox()
+    if box is None:
+        raise ValueError("icon artwork is empty after background cleanup")
 
-    target = int(CANVAS * FILL)
-    cw, ch = cropped.size
-    scale = min(target / cw, target / ch)
-    new_size = (max(1, int(cw * scale)), max(1, int(ch * scale)))
-    resized = cropped.resize(new_size, Image.Resampling.LANCZOS)
+    art = src.crop(box).resize((BODY, BODY), Image.Resampling.LANCZOS)
+    alpha = mask.crop(box).resize((BODY, BODY), Image.Resampling.LANCZOS)
+    art.putalpha(alpha)
 
-    master = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
-    master.paste(resized, ((CANVAS - new_size[0]) // 2, (CANVAS - new_size[1]) // 2), resized)
-    master = chrome_metal_grade(master)
-    return apply_squircle_mask(master, half=CANVAS * FILL / 2)
+    shadow = Image.new("L", (CANVAS, CANVAS), 0)
+    shadow.paste(alpha.point(lambda v: v * SHADOW_ALPHA // 255), (MARGIN, MARGIN + SHADOW_OFFSET))
+    shadow = shadow.filter(ImageFilter.GaussianBlur(SHADOW_BLUR))
+    below = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+    below.putalpha(shadow)
+
+    above = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
+    above.paste(art, (MARGIN, MARGIN))
+    return Image.alpha_composite(below, above)
 
 
 def write_png(img: Image.Image, size: int, path: Path) -> None:
@@ -134,7 +93,6 @@ def main() -> int:
         raise SystemExit(f"Missing {SOURCE}")
 
     master = master_from_source(SOURCE)
-    master.save(ROOT / "Looper-1024.png", optimize=True)
 
     asset_sizes = {
         "icon_16.png": 16,
