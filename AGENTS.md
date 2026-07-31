@@ -25,3 +25,10 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Keeping the process warm between opens is fine without a launchd agent.
 - Gatekeeper/quarantine can block Open With on ad-hoc builds or quarantined downloads — clear app quarantine on install; user may need Open Anyway for quarantined videos.
 - Often plays multiple videos at once (~6 windows) — keep multi-window performance in mind.
+
+
+## Automated Agent & Jules Integration Guidelines
+- **Jules PR Auto-Merge**: Automated PRs created on branches starting with `sentinel-`, `bolt-`, or `palette-` are handled by GitHub Actions (`.github/workflows/jules-automerge.yml`).
+- **No Duplicate Issue/PR Reopening**: Jules subagents must verify existing closed and open PRs before proposing repetitive fixes or contact info updates.
+- **Branch Cleanup**: Head branches are deleted automatically upon squash-merge.
+
