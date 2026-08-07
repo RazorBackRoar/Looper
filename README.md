@@ -23,6 +23,7 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 - **Accessory utility** — `LSUIElement`, no Dock tile; stays warm between opens
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay; scroll to seek without pausing
+- **Supported formats** — mp4, mov, mkv (Finder Open With / double-click)
 - **Apple Silicon native** — arm64 only · zero external dependencies
 
 ## Install
@@ -68,7 +69,8 @@ Release DMG (shared `.razorcore` branding + locked DMG layout):
 
 Output: `build/Release/Looper.dmg` (no loose `.app` in the repo).
 
-See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md).
+See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) and
+[docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
 
 ## Set as default player
 

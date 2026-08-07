@@ -43,6 +43,10 @@ xcodebuild -project Looper.xcodeproj -scheme Looper -configuration Release \
 ./scripts/build-mac.sh
 ```
 
+The script regenerates `Looper.icns` from `IconSource.png` via
+`scripts/generate-icon.py` (Python 3.14 + Pillow). Optional env vars:
+`LOOPER_SIGN_IDENTITY`, `LOOPER_ICON_PYTHON`.
+
 Or from `Apps/`:
 
 ```zsh
@@ -89,6 +93,7 @@ running Looper process automatically).
 
 ## Related Docs
 
+- [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md)
 - [README.md](README.md)
 - [CONTRIBUTING.md](CONTRIBUTING.md)
 - [SECURITY.md](SECURITY.md)
