@@ -33,6 +33,13 @@ workspace, `razor-autosync` may commit locally; publishing uses
 See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md) for prerequisites, build,
 packaging, and release steps for this repository.
 
+Architecture: [docs/ARCHITECTURE.md](docs/ARCHITECTURE.md).
+
+## Testing
+
+CI runs `xcodebuild` on macOS. There is no automated UI test suite — validate
+playback, scrub, and multi-window behavior manually after changes.
+
 ## Pull Requests
 
 - Describe **why** the change is needed.
