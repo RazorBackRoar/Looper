@@ -142,6 +142,92 @@ private final class VideoScrubBar: NSView {
     }
 }
 
+// MARK: - Minimal transparent volume slider
+
+private final class VolumeSlider: NSView {
+    var value: Double = 1.0 {
+        didSet { needsDisplay = true }
+    }
+    var onValueChanged: ((Double) -> Void)?
+
+    private var dragging = false
+
+    override var isOpaque: Bool { false }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let inset: CGFloat = 6
+        let iconW: CGFloat = 12
+        let iconGap: CGFloat = 6
+        let trackInsetLeft = inset + iconW + iconGap
+        let trackW = max(bounds.width - trackInsetLeft - inset, 1)
+        let trackY = bounds.midY
+        let trackH: CGFloat = 3
+        let fraction = min(1, max(0, value))
+
+        drawSpeaker(in: NSRect(x: inset, y: trackY - iconW / 2, width: iconW, height: iconW))
+
+        let track = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW, height: trackH)
+        NSColor.white.withAlphaComponent(0.35).setFill()
+        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
+
+        let progress = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW * fraction, height: trackH)
+        NSColor(calibratedRed: 0.2, green: 0.55, blue: 1.0, alpha: 0.95).setFill()
+        NSBezierPath(roundedRect: progress, xRadius: 1.5, yRadius: 1.5).fill()
+
+        let knobX = round(trackInsetLeft + trackW * fraction)
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: NSRect(x: knobX - 4, y: trackY - 4, width: 8, height: 8)).fill()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        dragging = true
+        setVolume(for: event)
+    }
+
+    override func mouseDragged(with event: NSEvent) {
+        guard dragging else { return }
+        setVolume(for: event)
+    }
+
+    override func mouseUp(with event: NSEvent) {
+        dragging = false
+    }
+
+    private func setVolume(for event: NSEvent) {
+        let x = convert(event.locationInWindow, from: nil).x
+        let inset: CGFloat = 6
+        let iconW: CGFloat = 12
+        let iconGap: CGFloat = 6
+        let trackInsetLeft = inset + iconW + iconGap
+        let trackW = max(bounds.width - trackInsetLeft - inset, 1)
+        let fraction = min(1, max(0, (x - trackInsetLeft) / trackW))
+        value = fraction
+        onValueChanged?(value)
+    }
+
+    private func drawSpeaker(in rect: NSRect) {
+        let bodyW: CGFloat = 5
+        let bodyH: CGFloat = 6
+        let bodyRect = NSRect(
+            x: rect.minX,
+            y: rect.midY - bodyH / 2,
+            width: bodyW,
+            height: bodyH
+        )
+        NSColor.white.setFill()
+        NSBezierPath(roundedRect: bodyRect, xRadius: 1, yRadius: 1).fill()
+
+        let cone = NSBezierPath()
+        cone.move(to: NSPoint(x: bodyRect.maxX, y: bodyRect.minY))
+        cone.line(to: NSPoint(x: rect.maxX, y: rect.minY))
+        cone.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
+        cone.line(to: NSPoint(x: bodyRect.maxX, y: bodyRect.maxY))
+        cone.close()
+        NSColor.white.setFill()
+        cone.fill()
+    }
+}
+
 // MARK: - Transparent QT-style overlay (subtle gradient, video shows through)
 
 private final class OverlayBarView: NSView {
@@ -202,6 +288,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var scrubBar: VideoScrubBar!
     private var elapsedLabel: NSTextField!
     private var remainingLabel: NSTextField!
+    private var volumeSlider: VolumeSlider!
     private var controlsBar: OverlayBarView!
     private var currentRate: Float = 1.0
     private var durationSeconds: Double = 0
@@ -325,9 +412,17 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
         scrubBar.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
 
+        volumeSlider = VolumeSlider(frame: .zero)
+        volumeSlider.translatesAutoresizingMaskIntoConstraints = false
+        volumeSlider.value = 1.0
+        volumeSlider.onValueChanged = { [weak self] volume in
+            self?.applyVolume(Float(volume))
+        }
+
         controlsBar.addSubview(elapsedLabel)
         controlsBar.addSubview(scrubBar)
         controlsBar.addSubview(remainingLabel)
+        controlsBar.addSubview(volumeSlider)
 
         NSLayoutConstraint.activate([
             playerSurface.leadingAnchor.constraint(equalTo: content.leadingAnchor),
@@ -349,7 +444,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             elapsedLabel.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
             elapsedLabel.widthAnchor.constraint(equalToConstant: 52),
 
-            remainingLabel.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
+            volumeSlider.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
+            volumeSlider.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
+            volumeSlider.widthAnchor.constraint(equalToConstant: 70),
+            volumeSlider.heightAnchor.constraint(equalToConstant: 20),
+
+            remainingLabel.trailingAnchor.constraint(equalTo: volumeSlider.leadingAnchor, constant: -10),
             remainingLabel.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
             remainingLabel.widthAnchor.constraint(equalToConstant: 58),
 
@@ -505,6 +605,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         player.allowsExternalPlayback = false
         queuePlayer = player
         playerSurface.player = player
+        applyVolume(Float(volumeSlider.value))
 
         playerLooper = AVPlayerLooper(player: player, templateItem: templateItem)
 
@@ -813,15 +914,26 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    private func applyVolume(_ volume: Float) {
+        guard let player = queuePlayer else { return }
+        if volume > 0.0001 {
+            preMuteVolume = volume
+        }
+        player.volume = volume
+    }
+
     private func toggleMute() {
         guard let player = queuePlayer else { return }
         // Volume-only mute — never touches rate; avoids isMuted audio-pipeline hitches.
         if player.volume < 0.0001 {
-            player.volume = preMuteVolume > 0 ? preMuteVolume : 1.0
+            let restored = preMuteVolume > 0.0001 ? preMuteVolume : 1.0
+            applyVolume(restored)
         } else {
             preMuteVolume = max(player.volume, 0.0001)
-            player.volume = 0
+            applyVolume(0)
         }
+        volumeSlider.value = Double(player.volume)
+        volumeSlider.needsDisplay = true
     }
 
     private func nudge(by delta: Double) {
