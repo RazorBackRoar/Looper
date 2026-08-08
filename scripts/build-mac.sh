@@ -22,11 +22,6 @@ rm -rf "$RELEASE_DIR"/*.app "$RELEASE_DIR"/*.dmg "$PROJECT_DIR/Looper.app"
 
 SIGN_IDENTITY="${LOOPER_SIGN_IDENTITY:-}"
 
-VERSION="$(
-  /usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' \
-    "$PROJECT_DIR/Looper/Info.plist" 2>/dev/null || echo "1.0"
-)"
-
 echo "Building $APP_NAME release..."
 cd "$PROJECT_DIR"
 
@@ -64,7 +59,7 @@ fi
 
 "$SCRIPT_DIR/install-to-applications.sh" "$APP_PATH"
 
-VOLUME_NAME="$APP_NAME $VERSION"
+VOLUME_NAME="$APP_NAME"
 "$RAZORCORE_DIR/package-dmg.sh" \
   --app "$APP_PATH" \
   --dmg "$DMG_PATH" \
@@ -74,6 +69,10 @@ VOLUME_NAME="$APP_NAME $VERSION"
 if [[ -n "$SIGN_IDENTITY" ]]; then
   codesign --force --sign "$SIGN_IDENTITY" "$DMG_PATH"
 fi
+
+# Replace the Desktop DMG copy so the latest release is always one double-click away.
+rm -f "$HOME/Desktop/$APP_NAME.dmg"
+cp -f "$DMG_PATH" "$HOME/Desktop/$APP_NAME.dmg"
 
 rm -rf "$APP_PATH"
 rm -rf "$DERIVED"
