@@ -1,5 +1,6 @@
 import AppKit
 import AVFoundation
+import CoreMedia
 import Foundation
 
 /// Aggressive warm cache tuned for high-RAM Apple Silicon (keep assets hot across opens).
@@ -19,6 +20,7 @@ enum AssetCache {
 
     private static let sizeCache = NSCache<NSString, NSValue>()
     private static let fpsCache = NSCache<NSString, NSNumber>()
+    private static let hdrCache = NSCache<NSString, NSNumber>()
     private static let sizeDefaultsKey = "Looper.nativeSizes"
 
     static func asset(for url: URL) -> AVURLAsset {
@@ -169,5 +171,42 @@ enum AssetCache {
                 await MainActor.run { completion(nil) }
             }
         }
+    }
+
+    /// True when the video track is HDR (PQ / HLG / Dolby Vision). Unknown → false (SDR).
+    static func loadContainsHDR(_ url: URL, completion: @escaping (Bool) -> Void) {
+        if let cached = hdrCache.object(forKey: url.path as NSString) {
+            DispatchQueue.main.async { completion(cached.boolValue) }
+            return
+        }
+
+        let asset = asset(for: url)
+        Task.detached(priority: .userInitiated) {
+            let hdr = await isHDR(asset)
+            hdrCache.setObject(NSNumber(value: hdr), forKey: url.path as NSString)
+            await MainActor.run { completion(hdr) }
+        }
+    }
+
+    private static func isHDR(_ asset: AVURLAsset) async -> Bool {
+        guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
+            return false
+        }
+        if track.hasMediaCharacteristic(.containsHDRVideo) {
+            return true
+        }
+        let formats = (try? await track.load(.formatDescriptions)) ?? []
+        return formats.contains { formatIsHDR($0) }
+    }
+
+    private static func formatIsHDR(_ desc: CMFormatDescription) -> Bool {
+        guard let raw = CMFormatDescriptionGetExtension(
+            desc,
+            extensionKey: kCMFormatDescriptionExtension_TransferFunction
+        ) as? String else {
+            return false
+        }
+        return raw == (kCMFormatDescriptionTransferFunction_SMPTE_ST_2084_PQ as String)
+            || raw == (kCMFormatDescriptionTransferFunction_ITU_R_2100_HLG as String)
     }
 }

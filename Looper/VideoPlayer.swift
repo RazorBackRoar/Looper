@@ -2,12 +2,12 @@ import AppKit
 import AVFoundation
 import QuartzCore
 
-/// HDR on the video layer: CALayer EDR (macOS 14–25) or preferredDynamicRange (26+).
-private func enablePlayerEDR(_ layer: CALayer) {
+/// HDR on the video layer only when the clip is HDR. SDR stays standard (no EDR).
+private func applyPlayerEDR(_ layer: CALayer, hdr: Bool) {
     if #available(macOS 26.0, *) {
-        layer.preferredDynamicRange = .high
+        layer.preferredDynamicRange = hdr ? .high : .standard
     } else {
-        layer.wantsExtendedDynamicRangeContent = true
+        layer.wantsExtendedDynamicRangeContent = hdr
     }
 }
 
@@ -17,13 +17,14 @@ private final class PlayerLayerView: NSView {
     private let playerLayer = AVPlayerLayer()
     /// 0–3 quarter-turns counter-clockwise (display only; file unchanged).
     var rotationQuarterTurns = 0
+    private var hdrEnabled = false
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         playerLayer.backgroundColor = NSColor.black.cgColor
-        enablePlayerEDR(playerLayer)
+        applyPlayerEDR(playerLayer, hdr: false)
     }
 
     required init?(coder: NSCoder) {
@@ -38,8 +39,13 @@ private final class PlayerLayerView: NSView {
         if playerLayer.superlayer !== layer {
             layer.addSublayer(playerLayer)
         }
-        enablePlayerEDR(playerLayer)
+        applyPlayerEDR(playerLayer, hdr: hdrEnabled)
         layoutPlayerLayerForRotation()
+    }
+
+    func setHDR(_ hdr: Bool) {
+        hdrEnabled = hdr
+        applyPlayerEDR(playerLayer, hdr: hdr)
     }
 
     private func layoutPlayerLayerForRotation() {
@@ -661,6 +667,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.applyDuration(seconds)
         }
 
+        AssetCache.loadContainsHDR(videoURL) { [weak self] hdr in
+            self?.playerSurface.setHDR(hdr)
+        }
+
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
             guard let self, !self.didAttachPlayer else { return }
             self.didApplyNativeSize = true
@@ -867,6 +877,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         durationSeconds = 0
         displayQuarterTurns = 0
         playerSurface.rotationQuarterTurns = 0
+        playerSurface.setHDR(false)
         playerSurface.needsLayout = true
         videoPixelSize = nil
         videoFrameRate = 30
@@ -913,7 +924,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - Scrub
 
     /// Scroll/swipe anywhere: up or right = forward, down or left = rewind.
-    /// No inertia — finger contact only; play resumes the instant fingers lift.
+    /// No inertia — finger contact only; play resumes after the seek lands (no playhead bounce).
     private func handleScrollWheel(_ event: NSEvent) {
         // Ignore trackpad momentum / inertia entirely.
         if event.momentumPhase != [] { return }
@@ -922,6 +933,13 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         var delta = usingX ? event.scrollingDeltaX : -event.scrollingDeltaY
         if event.isDirectionInvertedFromDevice {
             delta = -delta
+        }
+        // Line-based mouse wheels report ±1 per notch; map that onto the trackpad pixel scale.
+        if !event.hasPreciseScrollingDeltas {
+            delta *= 30
+        } else if abs(delta) < 0.4 {
+            // Logitech high-res wheels send tiny reverse ticks that bounce the knob.
+            delta = 0
         }
 
         if event.phase == .began || (!scrollScrubActive && delta != 0) {
@@ -943,13 +961,13 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         if event.phase == .ended || event.phase == .cancelled {
             finishScrollScrub()
         } else if scrollScrubActive, event.phase == [] {
-            // Clicky wheel — no phase events.
+            // Clicky / Logitech wheel — no phase events. Wait for the burst to stop.
             scrollEndWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
                 self?.finishScrollScrub()
             }
             scrollEndWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.22, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: work)
         }
     }
 
@@ -987,14 +1005,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
 
         let target = scrollSeekPending ?? scrubBar.value
         scrollSeekPending = nil
-        isScrubbing = false
         setScrubBarTime(target, forceRedraw: true)
 
+        // Stay in scrub until the seek lands — playing from the old time is what bounced the knob.
         seek(to: target, precise: true) { [weak self] in
-            self?.queuePlayer?.playImmediately(atRate: self?.currentRate ?? 1)
+            guard let self else { return }
+            self.isScrubbing = false
+            self.queuePlayer?.playImmediately(atRate: self.currentRate)
+            self.scheduleHideControls()
         }
-        queuePlayer?.playImmediately(atRate: currentRate)
-        scheduleHideControls()
     }
 
     private func scrubStarted() {

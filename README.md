@@ -24,7 +24,7 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
-- **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR on the player layer
+- **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR only when the file is HDR
 - **Formats** — `mp4`, `mov`, `m4v` via AVFoundation. `mkv` is registered for Open With but often cannot play (no FFmpeg)
 
 ## Install
