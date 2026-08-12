@@ -2,6 +2,15 @@ import AppKit
 import AVFoundation
 import QuartzCore
 
+/// HDR on the video layer: CALayer EDR (macOS 14–25) or preferredDynamicRange (26+).
+private func enablePlayerEDR(_ layer: CALayer) {
+    if #available(macOS 26.0, *) {
+        layer.preferredDynamicRange = .high
+    } else {
+        layer.wantsExtendedDynamicRangeContent = true
+    }
+}
+
 // MARK: - Video surface (fills window; aspect ratio locked on resize)
 
 private final class PlayerLayerView: NSView {
@@ -14,6 +23,7 @@ private final class PlayerLayerView: NSView {
         wantsLayer = true
         playerLayer.videoGravity = .resizeAspectFill
         playerLayer.backgroundColor = NSColor.black.cgColor
+        enablePlayerEDR(playerLayer)
     }
 
     required init?(coder: NSCoder) {
@@ -28,6 +38,7 @@ private final class PlayerLayerView: NSView {
         if playerLayer.superlayer !== layer {
             layer.addSublayer(playerLayer)
         }
+        enablePlayerEDR(playerLayer)
         layoutPlayerLayerForRotation()
     }
 
@@ -275,11 +286,98 @@ private final class VideoScrollView: NSView {
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
+/// Root content view: file drops bubble here; tracking area sees mouse over subviews.
+private final class FileDropView: NSView {
+    var onDropURLs: (([URL]) -> Void)?
+    var onMouseMoved: ((NSEvent) -> Void)?
+    var onMouseExited: (() -> Void)?
+
+    static let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "mkv"]
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        layer?.backgroundColor = NSColor.black.cgColor
+        registerForDraggedTypes([.fileURL])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        trackingAreas.forEach { removeTrackingArea($0) }
+        addTrackingArea(
+            NSTrackingArea(
+                rect: bounds,
+                options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
+                owner: self,
+                userInfo: nil
+            )
+        )
+    }
+
+    override func mouseMoved(with event: NSEvent) {
+        onMouseMoved?(event)
+    }
+
+    override func mouseEntered(with event: NSEvent) {
+        onMouseMoved?(event)
+    }
+
+    override func mouseExited(with event: NSEvent) {
+        onMouseExited?()
+    }
+
+    override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
+        Self.videoURLs(from: sender).isEmpty ? [] : .copy
+    }
+
+    override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
+        draggingEntered(sender)
+    }
+
+    override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        !Self.videoURLs(from: sender).isEmpty
+    }
+
+    override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
+        let urls = Self.videoURLs(from: sender)
+        guard !urls.isEmpty else { return false }
+        onDropURLs?(urls)
+        return true
+    }
+
+    static func videoURLs(from sender: NSDraggingInfo) -> [URL] {
+        let pb = sender.draggingPasteboard
+        var urls: [URL] = []
+        if let read = pb.readObjects(
+            forClasses: [NSURL.self],
+            options: [.urlReadingFileURLsOnly: true]
+        ) as? [URL] {
+            urls.append(contentsOf: read)
+        }
+        if urls.isEmpty, let items = pb.pasteboardItems {
+            for item in items {
+                if let str = item.string(forType: .fileURL), let url = URL(string: str) {
+                    urls.append(url)
+                }
+            }
+        }
+        return urls.filter { videoExtensions.contains($0.pathExtension.lowercased()) }
+    }
+}
+
+private final class PassthroughLabel: NSTextField {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
 // MARK: - Player window
 
 /// Maxed local player: instant open, aggressive scrub, gapless loop. Never minimizes to Dock.
 final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
-    private let videoURL: URL
+    private var videoURL: URL
     private let cascadeOrigin: NSPoint
     private var queuePlayer: AVQueuePlayer?
     private var playerLooper: AVPlayerLooper?
@@ -290,6 +388,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var remainingLabel: NSTextField!
     private var volumeSlider: VolumeSlider!
     private var controlsBar: OverlayBarView!
+    private var rateHUD: PassthroughLabel!
     private var currentRate: Float = 1.0
     private var durationSeconds: Double = 0
     private var isScrubbing = false
@@ -310,8 +409,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var displayQuarterTurns = 0
     private var didResolveFrameRate = false
     private var preMuteVolume: Float = 1.0
+    private var hideControlsWork: DispatchWorkItem?
+    private var rateHUDHideWork: DispatchWorkItem?
     /// ~one deliberate two-finger swipe on a trackpad (cumulative |delta|).
     private static let scrollFullGestureDelta: Double = 150
+    private static let controlsBarHeight: CGFloat = 36
+    private static let controlsHideDelay: TimeInterval = 2.4
     /// Fraction of the clip traversed by that full swipe (4% — same finger travel, any length).
     private static let scrollTimelineFraction: Double = 0.04
     /// Cap coarse seeks during scroll scrub (10/s) so 3.5K doesn't choke AVPlayer.
@@ -375,8 +478,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     // MARK: - UI
 
     private func setupUI() {
-        guard let content = window?.contentView else { return }
-        let barHeight: CGFloat = 36
+        guard let window else { return }
+        let dropView = FileDropView(frame: window.contentView?.bounds ?? .zero)
+        dropView.autoresizingMask = [.width, .height]
+        dropView.onDropURLs = { [weak self] urls in self?.handleDroppedURLs(urls) }
+        dropView.onMouseMoved = { [weak self] event in self?.handleMouseMoved(event) }
+        dropView.onMouseExited = { [weak self] in self?.scheduleHideControls(delay: 0.45) }
+        window.contentView = dropView
+        let content = dropView
+        let barHeight = Self.controlsBarHeight
 
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.black.cgColor
@@ -424,6 +534,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         controlsBar.addSubview(remainingLabel)
         controlsBar.addSubview(volumeSlider)
 
+        rateHUD = makeRateHUD()
+        content.addSubview(rateHUD)
+
         NSLayoutConstraint.activate([
             playerSurface.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             playerSurface.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -457,6 +570,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
             scrubBar.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
             scrubBar.heightAnchor.constraint(equalToConstant: 20),
+
+            rateHUD.centerXAnchor.constraint(equalTo: content.centerXAnchor),
+            rateHUD.centerYAnchor.constraint(equalTo: content.centerYAnchor),
         ])
     }
 
@@ -472,6 +588,26 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             let s = NSShadow()
             s.shadowColor = NSColor.black.withAlphaComponent(0.85)
             s.shadowBlurRadius = 3
+            s.shadowOffset = NSSize(width: 0, height: -1)
+            return s
+        }()
+        return label
+    }
+
+    private func makeRateHUD() -> PassthroughLabel {
+        let label = PassthroughLabel(labelWithString: "1×")
+        label.translatesAutoresizingMaskIntoConstraints = false
+        label.font = NSFont.monospacedDigitSystemFont(ofSize: 42, weight: .semibold)
+        label.textColor = .white
+        label.alignment = .center
+        label.isBezeled = false
+        label.drawsBackground = false
+        label.alphaValue = 0
+        label.isHidden = true
+        label.shadow = {
+            let s = NSShadow()
+            s.shadowColor = NSColor.black.withAlphaComponent(0.85)
+            s.shadowBlurRadius = 8
             s.shadowOffset = NSSize(width: 0, height: -1)
             return s
         }()
@@ -513,7 +649,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         AssetCache.loadPlayable(videoURL) { [weak self] asset, error in
             guard let self else { return }
             if error != nil {
-                self.window?.title = "Failed — \(self.videoURL.lastPathComponent)"
+                self.markLoadFailed()
                 self.slamOpaqueFront()
                 return
             }
@@ -536,6 +672,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private func tryAttachAndReveal() {
         guard !didAttachPlayer, let asset = pendingAsset, didApplyNativeSize, didResolveFrameRate else { return }
         attachPlayer(with: asset)
+    }
+
+    private func markLoadFailed() {
+        let name = videoURL.lastPathComponent
+        if videoURL.pathExtension.lowercased() == "mkv" {
+            window?.title = "Can't play MKV — \(name)"
+        } else {
+            window?.title = "Failed — \(name)"
+        }
     }
 
     private func applyDuration(_ seconds: Double) {
@@ -618,7 +763,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             guard let self else { return }
             if item.status == .failed {
                 DispatchQueue.main.async {
-                    self.window?.title = "Failed — \(self.videoURL.lastPathComponent)"
+                    self.markLoadFailed()
                 }
             }
         }
@@ -626,6 +771,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         player.playImmediately(atRate: currentRate)
         didReveal = true
         slamOpaqueFront()
+        scheduleHideControls()
     }
 
     /// Opaque black window — raise above Finder handoff while this window is key.
@@ -649,6 +795,121 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         window.level = .normal
     }
 
+    // MARK: - Overlay, drop, rate HUD
+
+    private func handleMouseMoved(_ event: NSEvent) {
+        showControls()
+        guard let content = window?.contentView else { return }
+        let p = content.convert(event.locationInWindow, from: nil)
+        if p.y <= Self.controlsBarHeight + 8 {
+            hideControlsWork?.cancel()
+            return
+        }
+        scheduleHideControls()
+    }
+
+    private func showControls() {
+        hideControlsWork?.cancel()
+        guard let bar = controlsBar else { return }
+        bar.isHidden = false
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.16
+            bar.animator().alphaValue = 1
+        }
+    }
+
+    private func scheduleHideControls(delay: TimeInterval? = nil) {
+        if isScrubbing || scrollScrubActive { return }
+        hideControlsWork?.cancel()
+        let wait = delay ?? Self.controlsHideDelay
+        let work = DispatchWorkItem { [weak self] in
+            self?.hideControls()
+        }
+        hideControlsWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
+    }
+
+    private func hideControls() {
+        if isScrubbing || scrollScrubActive { return }
+        guard let bar = controlsBar else { return }
+        NSAnimationContext.runAnimationGroup({ ctx in
+            ctx.duration = 0.22
+            bar.animator().alphaValue = 0
+        }, completionHandler: { [weak self] in
+            guard let self, !self.isScrubbing, !self.scrollScrubActive else { return }
+            if self.controlsBar.alphaValue < 0.05 {
+                self.controlsBar.isHidden = true
+            }
+        })
+    }
+
+    private func handleDroppedURLs(_ urls: [URL]) {
+        guard let first = urls.first else { return }
+        replaceVideo(with: first)
+        let rest = Array(urls.dropFirst())
+        if !rest.isEmpty {
+            (NSApp.delegate as? AppDelegate)?.openVideos(at: rest)
+        }
+    }
+
+    private func replaceVideo(with url: URL) {
+        let newPath = url.standardizedFileURL.path
+        guard newPath != videoURL.standardizedFileURL.path else { return }
+        saveWindowFrame()
+        tearDownPlayback(removeKeyMonitor: false)
+        videoURL = url
+        window?.title = url.lastPathComponent
+        pendingAsset = nil
+        didAttachPlayer = false
+        didApplyNativeSize = false
+        didResolveFrameRate = false
+        didReveal = false
+        durationSeconds = 0
+        displayQuarterTurns = 0
+        playerSurface.rotationQuarterTurns = 0
+        playerSurface.needsLayout = true
+        videoPixelSize = nil
+        videoFrameRate = 30
+        currentRate = 1.0
+        scrubBar.value = 0
+        lastKnobPixelX = -1
+        updateTimeLabels(current: 0)
+        AssetCache.preload(url)
+        if let cached = AssetCache.cachedNativeSize(for: url) {
+            applyNativeWindowSize(cached)
+            didApplyNativeSize = true
+        }
+        bootPlayerFast()
+        slamOpaqueFront()
+        showControls()
+    }
+
+    private func flashRate() {
+        guard rateHUD != nil else { return }
+        rateHUD.stringValue = Self.formatRate(currentRate)
+        rateHUD.isHidden = false
+        NSAnimationContext.runAnimationGroup { ctx in
+            ctx.duration = 0.08
+            rateHUD.animator().alphaValue = 1
+        }
+        rateHUDHideWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            NSAnimationContext.runAnimationGroup({ ctx in
+                ctx.duration = 0.28
+                self.rateHUD.animator().alphaValue = 0
+            }, completionHandler: { [weak self] in
+                self?.rateHUD.isHidden = true
+            })
+        }
+        rateHUDHideWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
+    }
+
+    private static func formatRate(_ rate: Float) -> String {
+        String(format: "%g×", rate)
+    }
+
     // MARK: - Scrub
 
     /// Scroll/swipe anywhere: up or right = forward, down or left = rewind.
@@ -666,6 +927,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         if event.phase == .began || (!scrollScrubActive && delta != 0) {
             if !scrollScrubActive {
                 scrollScrubActive = true
+                showControls()
                 scrubStarted()
             }
         }
@@ -732,11 +994,13 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self?.queuePlayer?.playImmediately(atRate: self?.currentRate ?? 1)
         }
         queuePlayer?.playImmediately(atRate: currentRate)
+        scheduleHideControls()
     }
 
     private func scrubStarted() {
         isScrubbing = true
         lastCoarseSeekAt = 0
+        showControls()
     }
 
     private func scrubValueChanged(_ seconds: Double) {
@@ -760,6 +1024,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             }
         }
         updateTimeLabels(current: seconds)
+        scheduleHideControls()
     }
 
     private func setScrubBarTime(_ seconds: Double, forceRedraw: Bool = false) {
@@ -943,12 +1208,14 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         let upper = durationSeconds > 0 ? durationSeconds : current + abs(delta)
         let target = min(max(current + delta, 0), upper)
         isScrubbing = true
+        showControls()
         seek(to: target, precise: true) { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
             self.scrubBar.value = target
             self.scrubBar.needsDisplay = true
             self.updateTimeLabels(current: target)
+            self.scheduleHideControls()
         }
     }
 
@@ -959,6 +1226,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
+        flashRate()
     }
 
     private func resetSpeed() {
@@ -966,6 +1234,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
+        flashRate()
     }
 
     /// 1 — toggle 50% / 100% speed.
@@ -978,6 +1247,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
+        flashRate()
     }
 
     /// L — rotate counter-clockwise (display only, file unchanged).
@@ -1030,6 +1300,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     func windowDidBecomeKey(_ notification: Notification) {
         raiseIfKey()
         window?.orderFrontRegardless()
+        showControls()
+        scheduleHideControls()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -1058,7 +1330,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
-    private func tearDownPlayback() {
+    private func tearDownPlayback(removeKeyMonitor: Bool = true) {
         statusObservation?.invalidate()
         statusObservation = nil
         if let timeObserver, let queuePlayer {
@@ -1068,7 +1340,11 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         scrollSeekWork?.cancel()
         scrollSeekWork = nil
         scrollSeekPending = nil
-        if let keyMonitor {
+        hideControlsWork?.cancel()
+        hideControlsWork = nil
+        rateHUDHideWork?.cancel()
+        rateHUDHideWork = nil
+        if removeKeyMonitor, let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil
         }

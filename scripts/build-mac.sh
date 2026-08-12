@@ -25,7 +25,7 @@ SIGN_IDENTITY="${LOOPER_SIGN_IDENTITY:-}"
 echo "Building $APP_NAME release..."
 cd "$PROJECT_DIR"
 
-ICON_PYTHON="${LOOPER_ICON_PYTHON:-$HOME/.local/bin/python3.14}"
+ICON_PYTHON="${LOOPER_ICON_PYTHON:-$HOME/.local/bin/python3}"
 "$ICON_PYTHON" "$SCRIPT_DIR/generate-icon.py"
 
 rm -rf "$DERIVED"

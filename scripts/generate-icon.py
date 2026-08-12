@@ -1,4 +1,4 @@
-#!/usr/bin/env python3.14
+#!/usr/bin/env python3
 """Build Looper.icns + asset catalog from IconSource.png.
 
 IconSource.png is a 1024x1024 RGB export with a checkerboard "transparency"

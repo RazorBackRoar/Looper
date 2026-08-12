@@ -43,12 +43,14 @@
 			<array>
 				<string>mp4</string>
 				<string>mov</string>
+				<string>m4v</string>
 				<string>mkv</string>
 			</array>
 			<key>LSItemContentTypes</key>
 			<array>
 				<string>public.mpeg-4</string>
 				<string>com.apple.quicktime-movie</string>
+				<string>com.apple.m4v-video</string>
 				<string>org.matroska.mkv</string>
 			</array>
 		</dict>

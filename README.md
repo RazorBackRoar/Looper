@@ -22,8 +22,10 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 - **Instant open** — parallel size + playable probe; native resolution window
 - **Accessory utility** — `LSUIElement`, no Dock tile; stays warm between opens
 - **Multi-window** — cascade placement + per-file frame memory
-- **QuickTime-style scrub** — transparent overlay; scroll to seek without pausing
-- **Apple Silicon native** — arm64 only · zero external dependencies
+- **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
+- **Drop onto a window** — replaces the current clip; extra files open in new windows
+- **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR on the player layer
+- **Formats** — `mp4`, `mov`, `m4v` via AVFoundation. `mkv` is registered for Open With but often cannot play (no FFmpeg)
 
 ## Install
 
@@ -41,15 +43,17 @@ Focus the video window first.
 |-----|--------|
 | **Space** | Pause / resume |
 | **M** | Mute / unmute |
-| **1** | Toggle 50% ↔ 100% speed |
+| **1** | Toggle 50% ↔ 100% speed (rate flashes on screen) |
 | **L** | Rotate counter-clockwise 90° (display only) |
 | **Return** | Close this window |
-| **[** / **]** | Slower / faster (0.25× steps) |
+| **[** / **]** | Slower / faster (0.25× steps; rate flashes on screen) |
 | **0** | Reset speed to 100% |
 | **←** / **→** | Rewind / forward 1s |
 | **Shift + ← / →** | Rewind / forward 5s |
 
 Scroll on the video: up/right = forward · down/left = rewind.
+
+Drop a video onto a playing window to replace it. Extra files in the same drop open in new windows.
 
 ## Development
 
