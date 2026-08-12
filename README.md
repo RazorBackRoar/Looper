@@ -79,6 +79,16 @@ See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md).
 1. Right-click a video → **Get Info**
 2. **Open With** → Looper → **Change All…**
 
+## Docs
+
+- [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [SECURITY.md](SECURITY.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+
 ## License
 
 MIT — see [LICENSE](LICENSE).
+Copyright © 2026 RazorBackRoar
+
+If you need me, give me a holler.
