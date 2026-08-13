@@ -13,6 +13,7 @@
 		A10000000000000000000004 /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000004 /* Assets.xcassets */; };
 		A10000000000000000000005 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* main.swift */; };
 		A10000000000000000000006 /* AssetCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* AssetCache.swift */; };
+		A10000000000000000000007 /* LooperSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* LooperSmokeTests.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,10 +25,19 @@
 		A20000000000000000000006 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* AssetCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetCache.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* Looper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Looper.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A20000000000000000000008 /* LooperSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LooperSmokeTests.swift; sourceTree = "<group>"; };
+		A30000000000000000000002 /* LooperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LooperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
 /* Begin PBXFrameworksBuildPhase section */
 		A40000000000000000000001 /* Frameworks */ = {
+			isa = PBXFrameworksBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A40000000000000000000002 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
@@ -41,6 +51,7 @@
 			isa = PBXGroup;
 			children = (
 				A50000000000000000000002 /* Looper */,
+				A50000000000000000000004 /* LooperTests */,
 				A50000000000000000000003 /* Products */,
 			);
 			sourceTree = "<group>";
@@ -63,8 +74,17 @@
 			isa = PBXGroup;
 			children = (
 				A30000000000000000000001 /* Looper.app */,
+				A30000000000000000000002 /* LooperTests.xctest */,
 			);
 			name = Products;
+			sourceTree = "<group>";
+		};
+		A50000000000000000000004 /* LooperTests */ = {
+			isa = PBXGroup;
+			children = (
+				A20000000000000000000008 /* LooperSmokeTests.swift */,
+			);
+			path = LooperTests;
 			sourceTree = "<group>";
 		};
 /* End PBXGroup section */
@@ -87,6 +107,22 @@
 			productReference = A30000000000000000000001 /* Looper.app */;
 			productType = "com.apple.product-type.application";
 		};
+		A60000000000000000000002 /* LooperTests */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = A80000000000000000000005 /* Build configuration list for PBXNativeTarget "LooperTests" */;
+			buildPhases = (
+				A70000000000000000000003 /* Sources */,
+				A40000000000000000000002 /* Frameworks */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = LooperTests;
+			productName = LooperTests;
+			productReference = A30000000000000000000002 /* LooperTests.xctest */;
+			productType = "com.apple.product-type.bundle.unit-test";
+		};
 /* End PBXNativeTarget section */
 
 /* Begin PBXProject section */
@@ -98,6 +134,9 @@
 				LastUpgradeCheck = 1600;
 				TargetAttributes = {
 					A60000000000000000000001 = {
+						CreatedOnToolsVersion = 16.0;
+					};
+					A60000000000000000000002 = {
 						CreatedOnToolsVersion = 16.0;
 					};
 				};
@@ -116,6 +155,7 @@
 			projectRoot = "";
 			targets = (
 				A60000000000000000000001 /* Looper */,
+				A60000000000000000000002 /* LooperTests */,
 			);
 		};
 /* End PBXProject section */
@@ -141,6 +181,14 @@
 				A10000000000000000000002 /* VideoPlayer.swift in Sources */,
 				A10000000000000000000006 /* AssetCache.swift in Sources */,
 				A10000000000000000000003 /* WindowFrameStore.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		A70000000000000000000003 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				A10000000000000000000007 /* LooperSmokeTests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -241,6 +289,42 @@
 			};
 			name = Release;
 		};
+		AA0000000000000000000005 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.razorbackroar.looper.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
+			};
+			name = Debug;
+		};
+		AA0000000000000000000006 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_IDENTITY = "-";
+				CODE_SIGN_STYLE = Automatic;
+				COMBINE_HIDPI_IMAGES = YES;
+				GENERATE_INFOPLIST_FILE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 14.0;
+				PRODUCT_BUNDLE_IDENTIFIER = com.razorbackroar.looper.tests;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SUPPORTED_PLATFORMS = macosx;
+				SWIFT_VERSION = 5.0;
+				ARCHS = arm64;
+				EXCLUDED_ARCHS = x86_64;
+			};
+			name = Release;
+		};
 /* End XCBuildConfiguration section */
 
 /* Begin XCConfigurationList section */
@@ -258,6 +342,15 @@
 			buildConfigurations = (
 				AA0000000000000000000003 /* Debug */,
 				AA0000000000000000000004 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Release;
+		};
+		A80000000000000000000005 /* Build configuration list for PBXNativeTarget "LooperTests" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				AA0000000000000000000005 /* Debug */,
+				AA0000000000000000000006 /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Release;
