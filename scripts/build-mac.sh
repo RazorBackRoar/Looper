@@ -25,8 +25,18 @@ SIGN_IDENTITY="${LOOPER_SIGN_IDENTITY:-}"
 echo "Building $APP_NAME release..."
 cd "$PROJECT_DIR"
 
-ICON_PYTHON="${LOOPER_ICON_PYTHON:-$HOME/.local/bin/python3}"
-"$ICON_PYTHON" "$SCRIPT_DIR/generate-icon.py"
+ICON_PYTHON="${LOOPER_ICON_PYTHON:-}"
+if [[ -z "$ICON_PYTHON" ]] && command -v uv >/dev/null 2>&1; then
+  echo "Generating Looper.icns with uv + Pillow..."
+  uv run --with pillow python "$SCRIPT_DIR/generate-icon.py"
+elif [[ -n "$ICON_PYTHON" ]]; then
+  "$ICON_PYTHON" "$SCRIPT_DIR/generate-icon.py"
+elif [[ -f "$PROJECT_DIR/Looper.icns" ]]; then
+  echo "Pillow not found; using existing Looper.icns"
+else
+  echo "Need Pillow (or LOOPER_ICON_PYTHON) to generate Looper.icns" >&2
+  exit 1
+fi
 
 rm -rf "$DERIVED"
 xcodebuild \
