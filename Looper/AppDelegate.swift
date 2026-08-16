@@ -1,5 +1,17 @@
 import AppKit
 
+enum LocalVideoURL {
+    /// Looper only plays files on disk. Network and custom-scheme URLs must not
+    /// reach AVURLAsset (CWE-918).
+    static func isPlayableFile(_ url: URL) -> Bool {
+        url.isFileURL
+    }
+
+    static func onlyPlayableFiles(_ urls: [URL]) -> [URL] {
+        urls.filter(isPlayableFile)
+    }
+}
+
 final class AppDelegate: NSObject, NSApplicationDelegate {
     private var windowControllers: [NSWindowController] = []
     private var cascadePoint = NSPoint(x: 200, y: 600)
@@ -39,12 +51,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Handles incoming file URL open requests.
     func application(_ application: NSApplication, open urls: [URL]) {
         didReceiveOpenFiles = true
-        openVideos(at: urls)
+        openVideos(at: LocalVideoURL.onlyPlayableFiles(urls))
     }
 
     /// Spawns an independent video player window for each URL provided.
     func openVideos(at urls: [URL]) {
-        for url in urls {
+        for url in LocalVideoURL.onlyPlayableFiles(urls) {
             AssetCache.preload(url)
             let windowController = VideoPlayerWindowController(videoURL: url, initialCascadePoint: cascadePoint)
 

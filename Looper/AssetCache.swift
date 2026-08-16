@@ -24,6 +24,7 @@ enum AssetCache {
     private static let sizeDefaultsKey = "Looper.nativeSizes"
 
     static func asset(for url: URL) -> AVURLAsset {
+        precondition(url.isFileURL, "Looper only opens local files")
         let key = url.path as NSString
         if let cached = cache.object(forKey: key) {
             return cached
@@ -79,6 +80,7 @@ enum AssetCache {
 
     /// Fire-and-forget warm of playable + tracks + duration + size.
     static func preload(_ url: URL) {
+        guard url.isFileURL else { return }
         let asset = asset(for: url)
         Task.detached(priority: .userInitiated) {
             _ = try? await asset.load(.isPlayable, .tracks, .duration)
@@ -90,6 +92,17 @@ enum AssetCache {
 
     /// Fast path: return as soon as the file is playable (don't wait on duration).
     static func loadPlayable(_ url: URL, completion: @escaping (AVURLAsset, Error?) -> Void) {
+        guard url.isFileURL else {
+            let error = NSError(
+                domain: "Looper",
+                code: 2,
+                userInfo: [NSLocalizedDescriptionKey: "Only local video files can be opened"]
+            )
+            DispatchQueue.main.async {
+                completion(AVURLAsset(url: URL(fileURLWithPath: "/dev/null")), error)
+            }
+            return
+        }
         let asset = asset(for: url)
         Task.detached(priority: .userInitiated) {
             do {
@@ -108,6 +121,10 @@ enum AssetCache {
     }
 
     static func loadDuration(_ url: URL, completion: @escaping (Double) -> Void) {
+        guard url.isFileURL else {
+            DispatchQueue.main.async { completion(0) }
+            return
+        }
         let asset = asset(for: url)
         Task.detached(priority: .utility) {
             let duration = (try? await asset.load(.duration)) ?? .zero
@@ -118,6 +135,10 @@ enum AssetCache {
 
     /// Native pixel size after preferredTransform (rotation-aware).
     static func loadNativeSize(_ url: URL, completion: @escaping (CGSize?) -> Void) {
+        guard url.isFileURL else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
         if let cached = cachedNativeSize(for: url) {
             DispatchQueue.main.async { completion(cached) }
             return
@@ -148,6 +169,10 @@ enum AssetCache {
 
     /// Video track nominal frame rate (e.g. 24, 29.97, 30, 60).
     static func loadFrameRate(_ url: URL, completion: @escaping (Float?) -> Void) {
+        guard url.isFileURL else {
+            DispatchQueue.main.async { completion(nil) }
+            return
+        }
         if let cached = fpsCache.object(forKey: url.path as NSString) {
             DispatchQueue.main.async { completion(cached.floatValue) }
             return
@@ -175,6 +200,10 @@ enum AssetCache {
 
     /// True when the video track is HDR (PQ / HLG / Dolby Vision). Unknown → false (SDR).
     static func loadContainsHDR(_ url: URL, completion: @escaping (Bool) -> Void) {
+        guard url.isFileURL else {
+            DispatchQueue.main.async { completion(false) }
+            return
+        }
         if let cached = hdrCache.object(forKey: url.path as NSString) {
             DispatchQueue.main.async { completion(cached.boolValue) }
             return

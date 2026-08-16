@@ -371,7 +371,9 @@ private final class FileDropView: NSView {
                 }
             }
         }
-        return urls.filter { videoExtensions.contains($0.pathExtension.lowercased()) }
+        return urls.filter {
+            LocalVideoURL.isPlayableFile($0) && videoExtensions.contains($0.pathExtension.lowercased())
+        }
     }
 }
 
