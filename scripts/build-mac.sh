@@ -1,6 +1,6 @@
 #!/bin/bash
 # Looper release build — Xcode + shared RazorBackRoar DMG contract.
-# Artifacts: build/Release/Looper.dmg only.
+# Local artifact: ~/Desktop/Looper.dmg (in-repo DMG is removed after copy).
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -75,10 +75,14 @@ VOLUME_NAME="$APP_NAME"
   --volname "$VOLUME_NAME"
 
 if [[ -n "$SIGN_IDENTITY" ]]; then
-  codesign --force --sign "$SIGN_IDENTITY" "$DMG_PATH"
+  SIGN_TARGET="$DMG_PATH"
+  if [[ ! -f "$SIGN_TARGET" ]]; then
+    SIGN_TARGET="${HOME}/Desktop/${APP_NAME}.dmg"
+  fi
+  codesign --force --sign "$SIGN_IDENTITY" "$SIGN_TARGET"
 fi
 
-# Keep only the DMG in-tree — /Applications is the runnable copy.
+# Delete the staging .app. Local handoff already moved the DMG to the Desktop.
 rm -rf "$APP_PATH" "$RELEASE_DIR/.previous-build"
 rm -rf "$DERIVED"
-echo "Build complete: $DMG_PATH"
+echo "Build complete: ${HOME}/Desktop/${APP_NAME}.dmg"
