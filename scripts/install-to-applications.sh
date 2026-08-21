@@ -1,4 +1,4 @@
-#!/bin/zsh
+#!/bin/bash
 set -euo pipefail
 
 # Optional manual-install helper. The default build (build-mac.sh) no longer calls this;
