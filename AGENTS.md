@@ -12,14 +12,14 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Video should fill the window (no letterbox black bars); scrub controls should overlay the video QuickTime-style (not a separate pane under the video).
 - Scroll wheel: up = seek forward; down = rewind.
 - Window must stay resizable — player/poster views must not lock window size.
-- After every Looper code change, run `./scripts/build-mac.sh` (no manual `pkill` — install stops Looper and replaces `/Applications/Looper.app` only; repo keeps only `build/Release/Looper.dmg`, **never** `Looper.app` in the project folder).
+- After every Looper code change, run `./scripts/build-mac.sh` (repo keeps only `build/Release/Looper.dmg`, **never** `Looper.app` in the project folder). The script replaces `~/Desktop/Looper.dmg`, mounts it on the Desktop, and backs up the current `/Applications/Looper.app` to `~/Desktop/Looper backup.zip`. The user drags the new `.app` from the mounted volume into `/Applications` and runs the short UAT pass; the agent does not install.
 
 ## Learned Workspace Facts
 
 - Product is Looper at `Apps/Looper` (Swift / AppKit native video player with gapless looping) — not XQT; the early XQT scaffold was renamed/relocated here.
 - Common Looper test videos live under `~/Desktop/QXT`.
 - Runs as an accessory/`LSUIElement` utility: no Dock icon, document-based open via Finder / Open With.
-- Install and run from `/Applications/Looper.app`; Release builds via `scripts/build-mac.sh` (installs Applications + `build/Release/Looper.dmg` only).
+- Release builds via `scripts/build-mac.sh` (replaces `~/Desktop/Looper.dmg`, mounts, and backs up the installed app, **never** installs to `/Applications`).
 - Packaging uses shared `Apps/.razorcore` (`patch-app-branding.sh`, `package-dmg.sh`); same DMG contract as Libra/MetaBurn.
 - `razorbuild Looper` from `Apps/` discovers `scripts/build-mac.sh`; autosync gates Xcode projects with `xcodebuild`.
 - Keeping the process warm between opens is fine without a launchd agent.

@@ -1,7 +1,9 @@
 #!/bin/zsh
 set -euo pipefail
 
-# Install the Release Looper.app into /Applications (what Finder "Open With" uses).
+# Optional manual-install helper. The default build (build-mac.sh) no longer calls this;
+# it mounts the DMG on the Desktop and lets the user drag the .app to /Applications.
+# Only run this when the user explicitly asks to install/overwrite the installed copy.
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 SRC="${1:-$ROOT/build/DerivedData/Build/Products/Release/Looper.app}"
 DEST="/Applications/Looper.app"

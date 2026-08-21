@@ -1,7 +1,7 @@
 #!/bin/bash
 # Looper release build — Xcode + shared RazorBackRoar DMG contract.
 # Artifacts: build/Release/Looper.dmg only (no .app left in the repo).
-# Always installs one copy to /Applications/Looper.app.
+# Leaves ~/Desktop/Looper.dmg mounted for the user; never installs to /Applications.
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
@@ -67,8 +67,6 @@ else
   codesign --force --deep --sign - "$APP_PATH"
 fi
 
-"$SCRIPT_DIR/install-to-applications.sh" "$APP_PATH"
-
 VOLUME_NAME="$APP_NAME"
 "$RAZORCORE_DIR/package-dmg.sh" \
   --app "$APP_PATH" \
@@ -83,8 +81,22 @@ fi
 # Replace the Desktop DMG copy so the latest release is always one double-click away.
 rm -f "$HOME/Desktop/$APP_NAME.dmg"
 cp -f "$DMG_PATH" "$HOME/Desktop/$APP_NAME.dmg"
+echo "✓ Desktop handoff: $HOME/Desktop/$APP_NAME.dmg"
+
+# Mount the DMG on the Desktop so the user can drag the new .app to /Applications.
+echo "Mounting Desktop DMG..."
+if ! hdiutil attach "$HOME/Desktop/$APP_NAME.dmg"; then
+  echo "Warning: $HOME/Desktop/$APP_NAME.dmg may already be mounted; continuing." >&2
+fi
+
+# Back up the currently installed app before the user replaces it.
+if [[ -d "/Applications/$APP_NAME.app" ]]; then
+  BACKUP_ZIP="$HOME/Desktop/$APP_NAME backup.zip"
+  rm -f "$BACKUP_ZIP"
+  echo "Backing up /Applications/$APP_NAME.app to $BACKUP_ZIP"
+  zip -r -y -q "$BACKUP_ZIP" "/Applications/$APP_NAME.app"
+fi
 
 rm -rf "$APP_PATH"
 rm -rf "$DERIVED"
 echo "Build complete: $DMG_PATH"
-echo "Installed /Applications/Looper.app"

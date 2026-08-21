@@ -10,8 +10,10 @@ macOS 14+), packaged with an ad-hoc or Developer ID–signed `.dmg` via shared
 `Apps/.razorcore` helpers (`patch-app-branding.sh`, `package-dmg.sh`).
 
 Built artifact is a single `Looper.dmg` under `build/Release/`; the `.app`
-bundle is consumed during packaging and not left in the repo. Every release
-build also installs `/Applications/Looper.app`.
+bundle is consumed during packaging and not left in the repo. The build also
+replaces `~/Desktop/Looper.dmg`, mounts it on the Desktop, and backs up the
+current `/Applications/Looper.app` to `~/Desktop/Looper backup.zip`. The user
+drags the new `.app` into `/Applications`; the build does not install it.
 
 ## Platform Requirements
 
