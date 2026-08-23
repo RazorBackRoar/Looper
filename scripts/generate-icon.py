@@ -5,8 +5,9 @@ IconSource.png is a 1024x1024 RGB export with a checkerboard "transparency"
 pattern baked in, and its squircle only covers ~676px of that canvas. The body
 is isolated from the checkerboard, scaled onto the 824x824 macOS icon grid and
 re-shadowed so Looper sits at the same visual weight as the sibling apps
-(MetaBurn / L!bra) in the Dock.
+(MetaBurn / Libra) in the Dock.
 """
+
 from __future__ import annotations
 
 import subprocess
@@ -27,7 +28,7 @@ MARGIN = (CANVAS - BODY) // 2
 BG_CHROMA = 18
 BG_VALUE = 200
 
-# Drop shadow matched to MetaBurn / L!bra.
+# Drop shadow matched to MetaBurn / Libra.
 SHADOW_BLUR = 5
 SHADOW_OFFSET = 10
 SHADOW_ALPHA = 80
@@ -72,7 +73,9 @@ def master_from_source(path: Path) -> Image.Image:
     art.putalpha(alpha)
 
     shadow = Image.new("L", (CANVAS, CANVAS), 0)
-    shadow.paste(alpha.point(lambda v: v * SHADOW_ALPHA // 255), (MARGIN, MARGIN + SHADOW_OFFSET))
+    shadow.paste(
+        alpha.point(lambda v: v * SHADOW_ALPHA // 255), (MARGIN, MARGIN + SHADOW_OFFSET)
+    )
     shadow = shadow.filter(ImageFilter.GaussianBlur(SHADOW_BLUR))
     below = Image.new("RGBA", (CANVAS, CANVAS), (0, 0, 0, 0))
     below.putalpha(shadow)
@@ -84,7 +87,9 @@ def master_from_source(path: Path) -> Image.Image:
 
 def write_png(img: Image.Image, size: int, path: Path) -> None:
     path.parent.mkdir(parents=True, exist_ok=True)
-    out = img if img.width == size else img.resize((size, size), Image.Resampling.LANCZOS)
+    out = (
+        img if img.width == size else img.resize((size, size), Image.Resampling.LANCZOS)
+    )
     out.save(path, optimize=True)
 
 
@@ -127,7 +132,9 @@ def main() -> int:
         write_png(master, px, iconset / name)
 
     icns = ROOT / "Looper.icns"
-    subprocess.run(["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], check=True)
+    subprocess.run(
+        ["iconutil", "-c", "icns", str(iconset), "-o", str(icns)], check=True
+    )
     print(f"Icon written: {icns}")
     return 0
 
