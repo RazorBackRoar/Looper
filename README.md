@@ -1,10 +1,16 @@
 # Looper
 
 [![Download](https://img.shields.io/github/v/release/RazorBackRoar/Looper?style=for-the-badge&label=Download%20DMG&color=FF8C00)](https://github.com/RazorBackRoar/Looper/releases/latest)
+[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=for-the-badge)](https://github.com/RazorBackRoar/Looper/releases/tag/v1.1.0)
 [![CI](https://img.shields.io/github/actions/workflow/status/RazorBackRoar/Looper/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/RazorBackRoar/Looper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blueviolet?style=for-the-badge)](LICENSE)
 [![Swift](https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org/)
 [![macOS](https://img.shields.io/badge/mac%20os-Apple%20Silicon-FF8C00?style=for-the-badge&logo=apple&logoColor=white)](https://support.apple.com/en-us/HT211814)
+
+<!-- Workspace Health Layer -->
+![Status](https://img.shields.io/badge/status-active-2ea44f?style=for-the-badge)
+![Tests](https://img.shields.io/badge/tests-present-2ea44f?style=for-the-badge)
+![Build](https://img.shields.io/badge/build-swift-F05138?style=for-the-badge)
 
 **Minimal native macOS video player — gapless loop, instant open, QuickTime-style scrub.**
 
