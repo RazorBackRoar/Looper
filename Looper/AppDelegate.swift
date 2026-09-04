@@ -81,8 +81,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanly removes window controller references when closed.
     func windowWillClose(_ controller: NSWindowController) {
         windowControllers.removeAll { $0 === controller }
-        // Stay alive as an agent (no Dock) so the next double-click hits warm AssetCache.
-        // With zero windows there is still nothing in the Dock.
+        // Accessory apps have no Dock tile, so a keep-alive process looks "quit"
+        // while Finder still cannot replace Looper.app ("item is in use").
+        if windowControllers.isEmpty {
+            NSApp.terminate(nil)
+        }
     }
 
     func applicationShouldHandleReopen(_ sender: NSApplication, hasVisibleWindows flag: Bool) -> Bool {
@@ -91,7 +94,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        // Keep process warm for instant next open. No Dock icon either way (LSUIElement).
-        return false
+        true
     }
 }

@@ -5,14 +5,16 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 ## Learned User Preferences
 
 - Never show Looper in the Dock (`LSUIElement`); never minimize to Dock; close means the window/player is fully gone.
-- Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar.
-- Target 120 Hz for scrub/UI/playhead feel; play content at native 30/60 fps — do not fake 120 fps video.
+- Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar. Do not use a window pop/zoom-open animation; Finder’s thumbnail zoom can clip through the player on first open.
+- Play content and playhead at the clip’s native fps (usually 30 or 60) — do not fake 120 fps video or drive the playhead from display Hz. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
+- Spacebar pauses/unpauses; clicking the video must never pause. Return closes only the focused player window, not every open video.
+- Keyboard shortcuts apply only while a Looper video window is focused: `M` mute/unmute, `1` toggle half-speed, `L` rotate. They must do nothing when no Looper video is playing.
 - App icon is orange and white (high-resolution `.icns` / 1024×1024 source).
 - Icon must sit at the same visual weight as the sibling apps: an 824×824 squircle centred in a 1024 canvas, plus a soft black drop shadow (blur 5, offset +10, peak alpha 80) — identical to MetaBurn / Libra. Keep `IconSource.png`'s own colours; do not re-grade the chrome or orange.
 - Video should fill the window (no letterbox black bars); scrub controls should overlay the video QuickTime-style (not a separate pane under the video).
 - Scroll wheel: up = seek forward; down = rewind.
 - Window must stay resizable — player/poster views must not lock window size.
-- After every Looper code change, run `./scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only. Open that DMG yourself to install; drag into `/Applications` manually.
+- After every Looper code change, run `./scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only — never leave a `Looper.app` in the repo folder. Open that DMG yourself to install; drag into `/Applications` manually.
 
 ## Learned Workspace Facts
 
@@ -22,7 +24,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Release builds via `scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only.
 - Packaging uses shared `Apps/.razorcore` (`patch-app-branding.sh`, `package-dmg.sh`); same DMG contract as Libra/MetaBurn.
 - `razorbuild Looper` from `Apps/` discovers `scripts/build-mac.sh`; autosync gates Xcode projects with `xcodebuild`.
-- Keeping the process warm between opens is fine without a launchd agent.
+- Quit when the last player window closes so Finder can replace `Looper.app`. Do not leave a hidden process running. No launchd agent.
 - Gatekeeper/quarantine can block Open With on ad-hoc builds or quarantined downloads — clear app quarantine on install; user may need Open Anyway for quarantined videos.
 - Often plays multiple videos at once (~6 windows) — keep multi-window performance in mind.
 

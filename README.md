@@ -26,7 +26,7 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 
 - **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
 - **Instant open** — parallel size + playable probe; native resolution window
-- **Accessory utility** — `LSUIElement`, no Dock tile; stays warm between opens
+- **Accessory utility** — `LSUIElement`, no Dock tile; closing the last window quits the app
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
