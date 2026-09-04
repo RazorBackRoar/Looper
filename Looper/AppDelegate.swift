@@ -18,7 +18,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var didReceiveOpenFiles = false
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        // Background utility mode (LSUIElement = true).
         // Terminal / argv launches may not deliver Apple Events — pick those up here.
         if !didReceiveOpenFiles {
             let urls = CommandLine.arguments.dropFirst().map { URL(fileURLWithPath: $0) }
@@ -81,8 +80,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Cleanly removes window controller references when closed.
     func windowWillClose(_ controller: NSWindowController) {
         windowControllers.removeAll { $0 === controller }
-        // Accessory apps have no Dock tile, so a keep-alive process looks "quit"
-        // while Finder still cannot replace Looper.app ("item is in use").
+        // Quit with the last window so Finder can replace Looper.app and so
+        // Get Info → Change All is not blocked by a leftover process.
         if windowControllers.isEmpty {
             NSApp.terminate(nil)
         }

@@ -14,7 +14,7 @@
 
 **Minimal native macOS video player — gapless loop, instant open, QuickTime-style scrub.**
 
-Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once. Plays locally with AppKit + AVFoundation only.
+Double-click or **Open With** from Finder. Set as the default player with Get Info → Change All. Multiple videos at once. Plays locally with AppKit + AVFoundation only.
 
 <p align="center">
   <a href="https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg"><strong>↓ Download Looper.dmg</strong></a>
@@ -26,7 +26,7 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 
 - **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
 - **Instant open** — parallel size + playable probe; native resolution window
-- **Accessory utility** — `LSUIElement`, no Dock tile; closing the last window quits the app
+- **Document player** — Finder Open With / Get Info → Change All; closing the last window quits the app
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
@@ -38,6 +38,7 @@ Double-click or **Open With** from Finder. No Dock icon. Multiple videos at once
 1. Download [`Looper.dmg`](https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg)
 2. Open the DMG and drag **Looper.app** to `/Applications`
 3. First launch — right-click → **Open** if Gatekeeper prompts (ad-hoc signed build)
+4. Optional default: select a video → **Get Info** → Open with **Looper** → **Change All** (once per type: mp4, mov, m4v, …)
 
 Requires macOS 14+ on Apple Silicon.
 

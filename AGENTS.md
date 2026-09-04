@@ -4,7 +4,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 ## Learned User Preferences
 
-- Never show Looper in the Dock (`LSUIElement`); never minimize to Dock; close means the window/player is fully gone.
+- Regular document app (not a menu bar extra, not `LSUIElement`). Dock tile while a video is open is expected so Finder Get Info → Open With → Change All can set Looper as the default player. Never minimize player windows to the Dock; close means that window is gone.
 - Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar. Do not use a window pop/zoom-open animation; Finder’s thumbnail zoom can clip through the player on first open.
 - Play content and playhead at the clip’s native fps (usually 30 or 60) — do not fake 120 fps video or drive the playhead from display Hz. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
 - Spacebar pauses/unpauses; clicking the video must never pause. Return closes only the focused player window, not every open video.
@@ -20,7 +20,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 - Product is Looper at `Apps/Looper` (Swift / AppKit native video player with gapless looping) — not XQT; the early XQT scaffold was renamed/relocated here.
 - Common Looper test videos live under `~/Desktop/QXT`.
-- Runs as an accessory/`LSUIElement` utility: no Dock icon, document-based open via Finder / Open With.
+- Regular AppKit document player: Finder double-click / Open With / Get Info → Change All. No status item.
 - Release builds via `scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only.
 - Packaging uses shared `Apps/.razorcore` (`patch-app-branding.sh`, `package-dmg.sh`); same DMG contract as Libra/MetaBurn.
 - `razorbuild Looper` from `Apps/` discovers `scripts/build-mac.sh`; autosync gates Xcode projects with `xcodebuild`.
