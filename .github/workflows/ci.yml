@@ -26,4 +26,4 @@ jobs:
 
       - name: Test
         run: |
-          xcodebuild             -project Looper.xcodeproj             -scheme Looper             -destination 'platform=macOS'             CODE_SIGN_IDENTITY=-             test || echo "Smoke tests validated"
+          xcodebuild             -project Looper.xcodeproj             -scheme Looper             -destination 'platform=macOS'             CODE_SIGN_IDENTITY=-             test
