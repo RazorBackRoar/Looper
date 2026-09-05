@@ -29,6 +29,24 @@
 		A30000000000000000000002 /* LooperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LooperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
 
+/* Begin PBXContainerItemProxy section */
+		B10000000000000000000001 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = A90000000000000000000001 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A60000000000000000000001;
+			remoteInfo = Looper;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXTargetDependency section */
+		B20000000000000000000001 /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A60000000000000000000001 /* Looper */;
+			targetProxy = B10000000000000000000001 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
 /* Begin PBXFrameworksBuildPhase section */
 		A40000000000000000000001 /* Frameworks */ = {
 			isa = PBXFrameworksBuildPhase;
@@ -117,6 +135,7 @@
 			buildRules = (
 			);
 			dependencies = (
+				B20000000000000000000001 /* PBXTargetDependency */,
 			);
 			name = LooperTests;
 			productName = LooperTests;
@@ -138,6 +157,7 @@
 					};
 					A60000000000000000000002 = {
 						CreatedOnToolsVersion = 16.0;
+						TestTargetID = A60000000000000000000001;
 					};
 				};
 			};

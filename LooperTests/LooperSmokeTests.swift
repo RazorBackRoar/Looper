@@ -33,11 +33,26 @@ final class LooperSmokeTests: XCTestCase {
         AssetCache.storeNativeSize(CGSize(width: 1920, height: 1080), for: url)
         XCTAssertEqual(AssetCache.cachedNativeSize(for: url), CGSize(width: 1920, height: 1080))
 
-        AssetCache.storeFPS(60.0, for: url)
-        XCTAssertEqual(AssetCache.cachedFPS(for: url), 60.0)
+        let poster = NSImage(size: NSSize(width: 100, height: 100))
+        AssetCache.storePoster(poster, for: url)
+        XCTAssertNotNil(AssetCache.cachedPoster(for: url))
+    }
 
-        AssetCache.storeHDR(true, for: url)
-        XCTAssertEqual(AssetCache.cachedHDR(for: url), true)
+    func testAssetCacheLoadFrameRateAndHDR() {
+        let url = URL(fileURLWithPath: "/tmp/looper_nonexistent_\(UUID().uuidString).mp4")
+        let expectationFPS = expectation(description: "loadFrameRate returns nil for non-existent file")
+        AssetCache.loadFrameRate(url) { rate in
+            XCTAssertNil(rate)
+            expectationFPS.fulfill()
+        }
+
+        let expectationHDR = expectation(description: "loadContainsHDR returns false for non-existent file")
+        AssetCache.loadContainsHDR(url) { isHDR in
+            XCTAssertFalse(isHDR)
+            expectationHDR.fulfill()
+        }
+
+        waitForExpectations(timeout: 5)
     }
 }
 
