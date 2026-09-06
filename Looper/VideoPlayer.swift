@@ -100,24 +100,70 @@ private final class VideoScrubBar: NSView {
 
     override var isOpaque: Bool { false }
 
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: dragging ? .closedHand : .pointingHand)
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let inset: CGFloat = 12
         let trackW = max(bounds.width - inset * 2, 1)
         let trackY = bounds.midY
-        let trackH: CGFloat = 3
         let fraction = maxValue > 0 ? min(1, max(0, value / maxValue)) : 0
-
-        let track = NSRect(x: inset, y: trackY - trackH / 2, width: trackW, height: trackH)
-        NSColor.white.withAlphaComponent(0.35).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
-
-        let progress = NSRect(x: inset, y: trackY - trackH / 2, width: trackW * fraction, height: trackH)
-        NSColor(calibratedRed: 0.2, green: 0.55, blue: 1.0, alpha: 0.95).setFill()
-        NSBezierPath(roundedRect: progress, xRadius: 1.5, yRadius: 1.5).fill()
-
         let knobX = round(inset + trackW * fraction)
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: NSRect(x: knobX - 5, y: trackY - 5, width: 10, height: 10)).fill()
+
+        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
+        ctx.saveGState()
+
+        let center = CGPoint(x: knobX, y: trackY)
+        let diameter: CGFloat = 22
+        let radius = diameter / 2
+        let circleRect = CGRect(x: center.x - radius, y: center.y - radius, width: diameter, height: diameter)
+
+        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: NSColor.black.withAlphaComponent(0.6).cgColor)
+
+        ctx.setFillColor(NSColor.white.cgColor)
+        ctx.fillEllipse(in: circleRect)
+
+        ctx.setShadow(offset: .zero, blur: 0, color: nil)
+
+        ctx.addEllipse(in: circleRect)
+        ctx.clip()
+
+        let rotationAngle = fraction * 8 * .pi
+        let maxTheta: CGFloat = 4.8 * .pi
+        let step: CGFloat = 0.04
+        let spiralPath = CGMutablePath()
+
+        var theta: CGFloat = 0.2
+        let r0 = (radius - 1.2) * (theta / maxTheta)
+        spiralPath.move(to: CGPoint(
+            x: center.x + r0 * cos(theta + rotationAngle),
+            y: center.y + r0 * sin(theta + rotationAngle)
+        ))
+
+        while theta <= maxTheta {
+            let r = (radius - 1.2) * (theta / maxTheta)
+            let pt = CGPoint(
+                x: center.x + r * cos(theta + rotationAngle),
+                y: center.y + r * sin(theta + rotationAngle)
+            )
+            spiralPath.addLine(to: pt)
+            theta += step
+        }
+
+        ctx.setStrokeColor(NSColor.black.cgColor)
+        ctx.setLineWidth(2.2)
+        ctx.setLineCap(.round)
+        ctx.setLineJoin(.round)
+        ctx.addPath(spiralPath)
+        ctx.strokePath()
+
+        ctx.setStrokeColor(NSColor.black.cgColor)
+        ctx.setLineWidth(1.2)
+        ctx.strokeEllipse(in: circleRect.insetBy(dx: 0.6, dy: 0.6))
+
+        ctx.restoreGState()
     }
 
     /// Pixel X of the knob center — used to skip redundant redraws during playback.
@@ -130,6 +176,7 @@ private final class VideoScrubBar: NSView {
 
     override func mouseDown(with event: NSEvent) {
         dragging = true
+        window?.invalidateCursorRects(for: self)
         onScrubStart?()
         scrubTo(event)
     }
@@ -141,6 +188,7 @@ private final class VideoScrubBar: NSView {
 
     override func mouseUp(with event: NSEvent) {
         dragging = false
+        window?.invalidateCursorRects(for: self)
         onScrubEnd?()
     }
 
@@ -184,11 +232,11 @@ private final class VolumeSlider: NSView {
         drawSpeaker(in: NSRect(x: inset, y: trackY - iconW / 2, width: iconW, height: iconW))
 
         let track = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW, height: trackH)
-        NSColor.white.withAlphaComponent(0.35).setFill()
+        NSColor.white.withAlphaComponent(0.25).setFill()
         NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
 
         let progress = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW * fraction, height: trackH)
-        NSColor(calibratedRed: 0.2, green: 0.55, blue: 1.0, alpha: 0.95).setFill()
+        NSColor.white.withAlphaComponent(0.85).setFill()
         NSBezierPath(roundedRect: progress, xRadius: 1.5, yRadius: 1.5).fill()
 
         let knobX = round(trackInsetLeft + trackW * fraction)
@@ -385,7 +433,7 @@ private final class PassthroughLabel: NSTextField {
 
 /// Maxed local player: instant open, aggressive scrub, gapless loop. Never minimizes to Dock.
 final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
-    private var videoURL: URL
+    private(set) var videoURL: URL
     private let cascadeOrigin: NSPoint
     private var queuePlayer: AVQueuePlayer?
     private var playerLooper: AVPlayerLooper?
@@ -410,6 +458,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var scrollEndWork: DispatchWorkItem?
     private var scrollSeekWork: DispatchWorkItem?
     private var scrollSeekPending: Double?
+    private var arrowScrubActive = false
+    private var arrowScrubEndWork: DispatchWorkItem?
+    private var lastArrowSeekAt: CFAbsoluteTime = 0
+    private var wasPlayingBeforeArrowScrub = false
     private var lastScrollSeekAt: CFAbsoluteTime = 0
     private var lastKnobPixelX: CGFloat = -1
     private var videoPixelSize: CGSize?
@@ -421,7 +473,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var rateHUDHideWork: DispatchWorkItem?
     /// ~one deliberate two-finger swipe on a trackpad (cumulative |delta|).
     private static let scrollFullGestureDelta: Double = 150
-    private static let controlsBarHeight: CGFloat = 36
+    private static let controlsBarHeight: CGFloat = 52
     private static let controlsHideDelay: TimeInterval = 2.4
     /// Fraction of the clip traversed by that full swipe (4% — same finger travel, any length).
     private static let scrollTimelineFraction: Double = 0.04
@@ -561,23 +613,23 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             controlsBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             controlsBar.heightAnchor.constraint(equalToConstant: barHeight),
 
+            scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 10),
+            scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
+            scrubBar.bottomAnchor.constraint(equalTo: controlsBar.bottomAnchor, constant: -16),
+            scrubBar.heightAnchor.constraint(equalToConstant: 24),
+
             elapsedLabel.leadingAnchor.constraint(equalTo: controlsBar.leadingAnchor, constant: 12),
-            elapsedLabel.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
+            elapsedLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
             elapsedLabel.widthAnchor.constraint(equalToConstant: 52),
 
             volumeSlider.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
-            volumeSlider.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
+            volumeSlider.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
             volumeSlider.widthAnchor.constraint(equalToConstant: 70),
             volumeSlider.heightAnchor.constraint(equalToConstant: 20),
 
             remainingLabel.trailingAnchor.constraint(equalTo: volumeSlider.leadingAnchor, constant: -10),
-            remainingLabel.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
+            remainingLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
             remainingLabel.widthAnchor.constraint(equalToConstant: 58),
-
-            scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 10),
-            scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
-            scrubBar.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
-            scrubBar.heightAnchor.constraint(equalToConstant: 20),
 
             rateHUD.centerXAnchor.constraint(equalTo: content.centerXAnchor),
             rateHUD.centerYAnchor.constraint(equalTo: content.centerYAnchor),
@@ -636,15 +688,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func bootPlayerFast() {
+        let targetURL = videoURL
         AssetCache.loadFrameRate(videoURL) { [weak self] fps in
-            guard let self else { return }
+            guard let self, self.videoURL == targetURL else { return }
             if let fps, fps > 0 { self.videoFrameRate = fps }
             self.didResolveFrameRate = true
             self.tryAttachAndReveal()
         }
 
         AssetCache.loadNativeSize(videoURL) { [weak self] size in
-            guard let self else { return }
+            guard let self, self.videoURL == targetURL else { return }
             if let size {
                 self.applyNativeWindowSize(size)
                 self.didApplyNativeSize = true
@@ -655,7 +708,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
 
         AssetCache.loadPlayable(videoURL) { [weak self] asset, error in
-            guard let self else { return }
+            guard let self, self.videoURL == targetURL else { return }
             if error != nil {
                 self.markLoadFailed()
                 self.slamOpaqueFront()
@@ -666,15 +719,17 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
 
         AssetCache.loadDuration(videoURL) { [weak self] seconds in
-            self?.applyDuration(seconds)
+            guard let self, self.videoURL == targetURL else { return }
+            self.applyDuration(seconds)
         }
 
         AssetCache.loadContainsHDR(videoURL) { [weak self] hdr in
-            self?.playerSurface.setHDR(hdr)
+            guard let self, self.videoURL == targetURL else { return }
+            self.playerSurface.setHDR(hdr)
         }
 
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) { [weak self] in
-            guard let self, !self.didAttachPlayer else { return }
+            guard let self, self.videoURL == targetURL, !self.didAttachPlayer else { return }
             self.didApplyNativeSize = true
             self.didResolveFrameRate = true
             self.tryAttachAndReveal()
@@ -795,6 +850,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         raiseIfKey()
         window.orderFrontRegardless()
         window.makeKeyAndOrderFront(nil)
+        NSApp.activate(ignoringOtherApps: true)
     }
 
     private func raiseIfKey() {

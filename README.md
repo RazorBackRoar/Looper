@@ -26,7 +26,7 @@ Double-click or **Open With** from Finder. Set as the default player with Get In
 
 - **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
 - **Instant open** — parallel size + playable probe; native resolution window
-- **Document player** — Finder Open With / Get Info → Change All; closing the last window quits the app
+- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All; closing the last window quits the app
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
@@ -47,7 +47,7 @@ Requires macOS 14+ on Apple Silicon.
 Focus the video window first.
 
 | Key | Action |
-|-----|--------|
+| ----- | -------- |
 | **Space** | Pause / resume |
 | **M** | Mute / unmute |
 | **1** | Toggle 50% ↔ 100% speed (rate flashes on screen) |

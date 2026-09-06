@@ -2,14 +2,14 @@
 
 Developer map for the native macOS gapless video player (AppKit + AVFoundation).
 
-Looper is a **regular document app** (Finder Open With / Get Info → Change All).
+Looper is an **accessory document app** (hidden from the Dock via `LSUIElement`; Finder Open With / Get Info → Change All).
 Each open file gets its own resizable window. Closing the last window quits.
 
 ## Module layout
 
 | File | Role |
-|------|------|
-| `Looper/main.swift` | Entry; sets regular activation policy |
+| ------ | ------ |
+| `Looper/main.swift` | Entry; sets accessory activation policy |
 | `Looper/AppDelegate.swift` | Multi-window open (Finder, argv), cascade placement |
 | `Looper/VideoPlayer.swift` | Player view, scrub overlay, keyboard shortcuts |
 | `Looper/AssetCache.swift` | Warm `AVURLAsset` / poster / fps cache (~1 GB budget) |

@@ -54,5 +54,28 @@ final class LooperSmokeTests: XCTestCase {
 
         waitForExpectations(timeout: 5)
     }
-}
 
+    func testLocalVideoURLFiltering() {
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.mp4")))
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.mov")))
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.m4v")))
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.mkv")))
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.MP4")))
+        XCTAssertTrue(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.MOV")))
+
+        XCTAssertFalse(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.txt")))
+        XCTAssertFalse(LocalVideoURL.isPlayableFile(URL(fileURLWithPath: "/tmp/sample.png")))
+        XCTAssertFalse(LocalVideoURL.isPlayableFile(URL(string: "https://example.com/sample.mp4")!))
+
+        let mixed = [
+            URL(fileURLWithPath: "/tmp/valid.mp4"),
+            URL(fileURLWithPath: "/tmp/invalid.txt"),
+            URL(string: "https://example.com/stream.mov")!,
+            URL(fileURLWithPath: "/tmp/valid.m4v")
+        ]
+        let filtered = LocalVideoURL.onlyPlayableFiles(mixed)
+        XCTAssertEqual(filtered.count, 2)
+        XCTAssertEqual(filtered[0].path, "/tmp/valid.mp4")
+        XCTAssertEqual(filtered[1].path, "/tmp/valid.m4v")
+    }
+}

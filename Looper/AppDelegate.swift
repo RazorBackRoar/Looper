@@ -1,10 +1,12 @@
 import AppKit
 
 enum LocalVideoURL {
+    static let supportedExtensions: Set<String> = ["mp4", "mov", "m4v", "mkv"]
+
     /// Looper only plays files on disk. Network and custom-scheme URLs must not
     /// reach AVURLAsset (CWE-918).
     static func isPlayableFile(_ url: URL) -> Bool {
-        url.isFileURL
+        url.isFileURL && supportedExtensions.contains(url.pathExtension.lowercased())
     }
 
     static func onlyPlayableFiles(_ urls: [URL]) -> [URL] {
@@ -20,9 +22,20 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationDidFinishLaunching(_ notification: Notification) {
         // Terminal / argv launches may not deliver Apple Events — pick those up here.
         if !didReceiveOpenFiles {
-            let urls = CommandLine.arguments.dropFirst().map { URL(fileURLWithPath: $0) }
+            let urls = CommandLine.arguments.dropFirst()
+                .filter { !$0.hasPrefix("-") }
+                .map { URL(fileURLWithPath: $0) }
             if !urls.isEmpty {
                 openVideos(at: Array(urls))
+            }
+        }
+        let isTesting = ProcessInfo.processInfo.environment["XCTestConfigurationFilePath"] != nil || NSClassFromString("XCTestCase") != nil
+        if !isTesting {
+            DispatchQueue.main.async { [weak self] in
+                guard let self else { return }
+                if self.windowControllers.isEmpty {
+                    NSApp.terminate(nil)
+                }
             }
         }
     }
@@ -56,6 +69,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     /// Spawns an independent video player window for each URL provided.
     func openVideos(at urls: [URL]) {
         for url in LocalVideoURL.onlyPlayableFiles(urls) {
+            let standardPath = url.standardizedFileURL.path
+            if let existing = windowControllers.compactMap({ $0 as? VideoPlayerWindowController }).first(where: {
+                $0.videoURL.standardizedFileURL.path == standardPath
+            }) {
+                existing.window?.makeKeyAndOrderFront(nil)
+                existing.window?.orderFrontRegardless()
+                continue
+            }
+
             AssetCache.preload(url)
             let windowController = VideoPlayerWindowController(videoURL: url, initialCascadePoint: cascadePoint)
 

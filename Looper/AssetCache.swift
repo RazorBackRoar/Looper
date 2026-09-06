@@ -25,7 +25,7 @@ enum AssetCache {
 
     static func asset(for url: URL) -> AVURLAsset {
         precondition(url.isFileURL, "Looper only opens local files")
-        let key = url.path as NSString
+        let key = url.standardizedFileURL.path as NSString
         if let cached = cache.object(forKey: key) {
             return cached
         }
@@ -38,21 +38,21 @@ enum AssetCache {
     }
 
     static func cachedPoster(for url: URL) -> NSImage? {
-        posterCache.object(forKey: url.path as NSString)
+        posterCache.object(forKey: url.standardizedFileURL.path as NSString)
     }
 
     static func storePoster(_ image: NSImage, for url: URL) {
-        posterCache.setObject(image, forKey: url.path as NSString)
+        posterCache.setObject(image, forKey: url.standardizedFileURL.path as NSString)
     }
 
     static func cachedNativeSize(for url: URL) -> CGSize? {
-        let key = url.path as NSString
+        let key = url.standardizedFileURL.path as NSString
         if let value = sizeCache.object(forKey: key) {
             return value.sizeValue
         }
         guard
             let dict = UserDefaults.standard.dictionary(forKey: sizeDefaultsKey) as? [String: String],
-            let raw = dict[url.path]
+            let raw = dict[url.standardizedFileURL.path]
         else { return nil }
         let parts = raw.split(separator: "x")
         guard parts.count == 2,
@@ -67,10 +67,10 @@ enum AssetCache {
 
     static func storeNativeSize(_ size: CGSize, for url: URL) {
         guard size.width > 1, size.height > 1 else { return }
-        let key = url.path as NSString
+        let key = url.standardizedFileURL.path as NSString
         sizeCache.setObject(NSValue(size: size), forKey: key)
         var dict = (UserDefaults.standard.dictionary(forKey: sizeDefaultsKey) as? [String: String]) ?? [:]
-        dict[url.path] = "\(Int(size.width))x\(Int(size.height))"
+        dict[url.standardizedFileURL.path] = "\(Int(size.width))x\(Int(size.height))"
         // Cap persisted map so it doesn't grow forever.
         if dict.count > 400 {
             dict = Dictionary(uniqueKeysWithValues: dict.suffix(300))
@@ -173,7 +173,7 @@ enum AssetCache {
             DispatchQueue.main.async { completion(nil) }
             return
         }
-        if let cached = fpsCache.object(forKey: url.path as NSString) {
+        if let cached = fpsCache.object(forKey: url.standardizedFileURL.path as NSString) {
             DispatchQueue.main.async { completion(cached.floatValue) }
             return
         }
@@ -189,7 +189,7 @@ enum AssetCache {
                 let rate = try await track.load(.nominalFrameRate)
                 let valid = rate > 1 ? rate : nil
                 if let valid {
-                    fpsCache.setObject(NSNumber(value: valid), forKey: url.path as NSString)
+                    fpsCache.setObject(NSNumber(value: valid), forKey: url.standardizedFileURL.path as NSString)
                 }
                 await MainActor.run { completion(valid) }
             } catch {
@@ -204,7 +204,7 @@ enum AssetCache {
             DispatchQueue.main.async { completion(false) }
             return
         }
-        if let cached = hdrCache.object(forKey: url.path as NSString) {
+        if let cached = hdrCache.object(forKey: url.standardizedFileURL.path as NSString) {
             DispatchQueue.main.async { completion(cached.boolValue) }
             return
         }
@@ -212,7 +212,7 @@ enum AssetCache {
         let asset = asset(for: url)
         Task.detached(priority: .userInitiated) {
             let hdr = await isHDR(asset)
-            hdrCache.setObject(NSNumber(value: hdr), forKey: url.path as NSString)
+            hdrCache.setObject(NSNumber(value: hdr), forKey: url.standardizedFileURL.path as NSString)
             await MainActor.run { completion(hdr) }
         }
     }

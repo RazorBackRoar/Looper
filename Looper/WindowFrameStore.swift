@@ -7,7 +7,7 @@ final class WindowFrameStore {
 
     /// Generates a unique storage key for a video file URL.
     private static func storageKey(for url: URL) -> String {
-        return userDefaultsPrefix + url.path
+        return userDefaultsPrefix + url.standardizedFileURL.path
     }
 
     /// Saves the specified window frame for a video file URL.
