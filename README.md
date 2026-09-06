@@ -55,8 +55,9 @@ Focus the video window first.
 | **Return** | Close this window |
 | **[** / **]** | Slower / faster (0.25× steps; rate flashes on screen) |
 | **0** | Reset speed to 100% |
-| **←** / **→** | Rewind / forward 1s |
-| **Shift + ← / →** | Rewind / forward 5s |
+| **←** / **→** | Scrub rewind / forward (hold to scrub continuously across clip) |
+| **Shift + ← / →** | Fast scrub rewind / forward |
+| **↑** / **↓** | Volume up / down |
 
 Scroll on the video: up/right = forward · down/left = rewind.
 

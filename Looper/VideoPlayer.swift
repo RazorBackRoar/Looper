@@ -1231,16 +1231,21 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             break
         }
 
-        let step: Double = event.modifierFlags.contains(.shift) ? 5 : 1
         switch event.keyCode {
         case 36, 76: // Return / keypad Enter — close this window only (must be key)
             window?.close()
             return true
         case 123:
-            nudge(by: -step)
+            arrowScrub(forward: false, fast: event.modifierFlags.contains(.shift))
             return true
         case 124:
-            nudge(by: step)
+            arrowScrub(forward: true, fast: event.modifierFlags.contains(.shift))
+            return true
+        case 125:
+            adjustVolume(by: -0.05)
+            return true
+        case 126:
+            adjustVolume(by: 0.05)
             return true
         default:
             return false
@@ -1264,6 +1269,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         player.volume = volume
     }
 
+    private func adjustVolume(by delta: Float) {
+        guard let player = queuePlayer else { return }
+        let newVol = min(1.0, max(0.0, player.volume + delta))
+        applyVolume(newVol)
+        volumeSlider.value = Double(newVol)
+        volumeSlider.needsDisplay = true
+        showControls()
+        scheduleHideControls()
+    }
+
     private func toggleMute() {
         guard let player = queuePlayer else { return }
         // Volume-only mute — never touches rate; avoids isMuted audio-pipeline hitches.
@@ -1278,20 +1293,56 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         volumeSlider.needsDisplay = true
     }
 
-    private func nudge(by delta: Double) {
+    private func arrowScrub(forward: Bool, fast: Bool) {
         guard let player = queuePlayer else { return }
-        let current = player.currentTime().seconds
-        guard current.isFinite else { return }
-        let upper = durationSeconds > 0 ? durationSeconds : current + abs(delta)
-        let target = min(max(current + delta, 0), upper)
-        isScrubbing = true
-        showControls()
+
+        if !arrowScrubActive {
+            arrowScrubActive = true
+            isScrubbing = true
+            wasPlayingBeforeArrowScrub = (player.rate != 0)
+            showControls()
+        }
+
+        arrowScrubEndWork?.cancel()
+
+        let current = scrubBar.value
+        let fraction: Double = fast ? 0.025 : 0.012
+        let step = durationSeconds > 0 ? max(0.04, durationSeconds * fraction) : 0.5
+        let delta = forward ? step : -step
+        let target = min(max(current + delta, 0), durationSeconds > 0 ? durationSeconds : current + abs(delta))
+
+        scrubBar.value = target
+        scrubBar.needsDisplay = true
+        updateTimeLabels(current: target)
+
+        let now = CFAbsoluteTimeGetCurrent()
+        if now - lastArrowSeekAt > (1.0 / 15.0) {
+            lastArrowSeekAt = now
+            seek(to: target, precise: false)
+        }
+
+        let work = DispatchWorkItem { [weak self] in
+            self?.finishArrowScrub()
+        }
+        arrowScrubEndWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
+    }
+
+    private func finishArrowScrub() {
+        guard arrowScrubActive else { return }
+        let target = scrubBar.value
+        let shouldResume = wasPlayingBeforeArrowScrub
         seek(to: target, precise: true) { [weak self] in
             guard let self else { return }
+            self.arrowScrubActive = false
             self.isScrubbing = false
-            self.scrubBar.value = target
-            self.scrubBar.needsDisplay = true
-            self.updateTimeLabels(current: target)
+            if shouldResume {
+                self.queuePlayer?.playImmediately(atRate: self.currentRate)
+            }
+            let actual = self.queuePlayer?.currentTime().seconds ?? target
+            if actual.isFinite {
+                self.setScrubBarTime(actual)
+            }
             self.scheduleHideControls()
         }
     }
@@ -1417,6 +1468,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         scrollSeekWork?.cancel()
         scrollSeekWork = nil
         scrollSeekPending = nil
+        arrowScrubEndWork?.cancel()
+        arrowScrubEndWork = nil
+        arrowScrubActive = false
         hideControlsWork?.cancel()
         hideControlsWork = nil
         rateHUDHideWork?.cancel()
