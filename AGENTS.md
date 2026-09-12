@@ -27,6 +27,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Quit when the last player window closes so Finder can replace `Looper.app`. Do not leave a hidden process running. No launchd agent.
 - Gatekeeper/quarantine can block Open With on ad-hoc builds or quarantined downloads — clear app quarantine on install; user may need Open Anyway for quarantined videos.
 - Often plays multiple videos at once (~6 windows) — keep multi-window performance in mind.
+- `LooperTests` needs an Xcode target dependency on Looper plus `TestTargetID` or `import Looper` fails. AssetCache tests must use `loadFrameRate`/`loadContainsHDR` (or the sync `storeNativeSize`/`storePoster` APIs), not invented `storeFPS`/`cachedFPS`/`storeHDR`/`cachedHDR`.
 
 ## Jules Repository Contract
 
