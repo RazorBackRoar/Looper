@@ -14,6 +14,8 @@
 		A10000000000000000000005 /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000006 /* main.swift */; };
 		A10000000000000000000006 /* AssetCache.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000007 /* AssetCache.swift */; };
 		A10000000000000000000007 /* LooperSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* LooperSmokeTests.swift */; };
+		A10000000000000000000008 /* MediaKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MediaKeys.swift */; };
+		A10000000000000000000009 /* PlaybackFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* PlaybackFormatting.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -24,6 +26,8 @@
 		A20000000000000000000005 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
 		A20000000000000000000006 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		A20000000000000000000007 /* AssetCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetCache.swift; sourceTree = "<group>"; };
+		A20000000000000000000009 /* MediaKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaKeys.swift; sourceTree = "<group>"; };
+		A20000000000000000000010 /* PlaybackFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackFormatting.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* Looper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Looper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000008 /* LooperSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LooperSmokeTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000002 /* LooperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LooperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -82,6 +86,8 @@
 				A20000000000000000000002 /* VideoPlayer.swift */,
 				A20000000000000000000007 /* AssetCache.swift */,
 				A20000000000000000000003 /* WindowFrameStore.swift */,
+				A20000000000000000000009 /* MediaKeys.swift */,
+				A20000000000000000000010 /* PlaybackFormatting.swift */,
 				A20000000000000000000005 /* Info.plist */,
 				A20000000000000000000004 /* Assets.xcassets */,
 			);
@@ -201,6 +207,8 @@
 				A10000000000000000000002 /* VideoPlayer.swift in Sources */,
 				A10000000000000000000006 /* AssetCache.swift in Sources */,
 				A10000000000000000000003 /* WindowFrameStore.swift in Sources */,
+				A10000000000000000000008 /* MediaKeys.swift in Sources */,
+				A10000000000000000000009 /* PlaybackFormatting.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -255,7 +263,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = NO;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -266,7 +274,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.1.1;
 				ONLY_ACTIVE_ARCH = YES;
 				PRODUCT_BUNDLE_IDENTIFIER = com.razorbackroar.looper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
@@ -286,7 +294,7 @@
 				CODE_SIGN_IDENTITY = "-";
 				CODE_SIGN_STYLE = Automatic;
 				COMBINE_HIDPI_IMAGES = YES;
-				CURRENT_PROJECT_VERSION = 30;
+				CURRENT_PROJECT_VERSION = 31;
 				ENABLE_APP_SANDBOX = NO;
 				ENABLE_HARDENED_RUNTIME = YES;
 				GENERATE_INFOPLIST_FILE = NO;
@@ -297,7 +305,7 @@
 					"@executable_path/../Frameworks",
 				);
 				MACOSX_DEPLOYMENT_TARGET = 14.0;
-				MARKETING_VERSION = 1.1.0;
+				MARKETING_VERSION = 1.1.1;
 				PRODUCT_BUNDLE_IDENTIFIER = com.razorbackroar.looper;
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;

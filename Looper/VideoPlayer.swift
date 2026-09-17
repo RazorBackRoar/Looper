@@ -11,6 +11,28 @@ private func applyPlayerEDR(_ layer: CALayer, hdr: Bool) {
     }
 }
 
+@available(macOS 26.0, *)
+private final class PassthroughGlassView: NSGlassEffectView {
+    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+}
+
+private func drawHighContrastTrack(in track: NSRect, fraction: CGFloat) {
+    let groove = NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2)
+    NSColor.black.withAlphaComponent(0.78).setFill()
+    groove.fill()
+    NSColor.white.setStroke()
+    groove.lineWidth = 1.25
+    groove.stroke()
+
+    let clamped = min(1, max(0, fraction))
+    if clamped > 0 {
+        var progress = track
+        progress.size.width = max(track.height, track.width * CGFloat(clamped))
+        NSColor.white.setFill()
+        NSBezierPath(roundedRect: progress, xRadius: 2, yRadius: 2).fill()
+    }
+}
+
 // MARK: - Video surface (fills window; aspect ratio locked on resize)
 
 private final class PlayerLayerView: NSView {
@@ -100,6 +122,15 @@ private final class VideoScrubBar: NSView {
 
     override var isOpaque: Bool { false }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: dragging ? .closedHand : .pointingHand)
@@ -112,58 +143,18 @@ private final class VideoScrubBar: NSView {
         let fraction = maxValue > 0 ? min(1, max(0, value / maxValue)) : 0
         let knobX = round(inset + trackW * fraction)
 
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        ctx.saveGState()
+        let trackH: CGFloat = 4
+        drawHighContrastTrack(
+            in: NSRect(x: inset, y: trackY - trackH / 2, width: trackW, height: trackH),
+            fraction: CGFloat(fraction)
+        )
 
-        let center = CGPoint(x: knobX, y: trackY)
-        let diameter: CGFloat = 22
-        let radius = diameter / 2
-        let circleRect = CGRect(x: center.x - radius, y: center.y - radius, width: diameter, height: diameter)
-
-        ctx.setShadow(offset: CGSize(width: 0, height: -1), blur: 3, color: NSColor.black.withAlphaComponent(0.6).cgColor)
-
-        ctx.setFillColor(NSColor.white.cgColor)
-        ctx.fillEllipse(in: circleRect)
-
-        ctx.setShadow(offset: .zero, blur: 0, color: nil)
-
-        ctx.addEllipse(in: circleRect)
-        ctx.clip()
-
-        let rotationAngle = fraction * 8 * .pi
-        let maxTheta: CGFloat = 4.8 * .pi
-        let step: CGFloat = 0.04
-        let spiralPath = CGMutablePath()
-
-        var theta: CGFloat = 0.2
-        let r0 = (radius - 1.2) * (theta / maxTheta)
-        spiralPath.move(to: CGPoint(
-            x: center.x + r0 * cos(theta + rotationAngle),
-            y: center.y + r0 * sin(theta + rotationAngle)
-        ))
-
-        while theta <= maxTheta {
-            let r = (radius - 1.2) * (theta / maxTheta)
-            let pt = CGPoint(
-                x: center.x + r * cos(theta + rotationAngle),
-                y: center.y + r * sin(theta + rotationAngle)
-            )
-            spiralPath.addLine(to: pt)
-            theta += step
-        }
-
-        ctx.setStrokeColor(NSColor.black.cgColor)
-        ctx.setLineWidth(2.2)
-        ctx.setLineCap(.round)
-        ctx.setLineJoin(.round)
-        ctx.addPath(spiralPath)
-        ctx.strokePath()
-
-        ctx.setStrokeColor(NSColor.black.cgColor)
-        ctx.setLineWidth(1.2)
-        ctx.strokeEllipse(in: circleRect.insetBy(dx: 0.6, dy: 0.6))
-
-        ctx.restoreGState()
+        let diameter: CGFloat = 10
+        let knobRect = NSRect(x: knobX - diameter / 2, y: trackY - diameter / 2, width: diameter, height: diameter)
+        NSColor.black.withAlphaComponent(0.45).setFill()
+        NSBezierPath(ovalIn: knobRect.insetBy(dx: -0.5, dy: -0.5)).fill()
+        NSColor.white.setFill()
+        NSBezierPath(ovalIn: knobRect).fill()
     }
 
     /// Pixel X of the knob center — used to skip redundant redraws during playback.
@@ -219,6 +210,15 @@ private final class VolumeSlider: NSView {
 
     override var isOpaque: Bool { false }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func draw(_ dirtyRect: NSRect) {
         let inset: CGFloat = 6
         let iconW: CGFloat = 12
@@ -226,20 +226,19 @@ private final class VolumeSlider: NSView {
         let trackInsetLeft = inset + iconW + iconGap
         let trackW = max(bounds.width - trackInsetLeft - inset, 1)
         let trackY = bounds.midY
-        let trackH: CGFloat = 3
+        let trackH: CGFloat = 4
         let fraction = min(1, max(0, value))
 
         drawSpeaker(in: NSRect(x: inset, y: trackY - iconW / 2, width: iconW, height: iconW))
 
-        let track = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW, height: trackH)
-        NSColor.white.withAlphaComponent(0.25).setFill()
-        NSBezierPath(roundedRect: track, xRadius: 1.5, yRadius: 1.5).fill()
-
-        let progress = NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW * fraction, height: trackH)
-        NSColor.white.withAlphaComponent(0.85).setFill()
-        NSBezierPath(roundedRect: progress, xRadius: 1.5, yRadius: 1.5).fill()
+        drawHighContrastTrack(
+            in: NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW, height: trackH),
+            fraction: CGFloat(fraction)
+        )
 
         let knobX = round(trackInsetLeft + trackW * fraction)
+        NSColor.black.withAlphaComponent(0.55).setFill()
+        NSBezierPath(ovalIn: NSRect(x: knobX - 5, y: trackY - 5, width: 10, height: 10)).fill()
         NSColor.white.setFill()
         NSBezierPath(ovalIn: NSRect(x: knobX - 4, y: trackY - 4, width: 8, height: 8)).fill()
     }
@@ -297,10 +296,37 @@ private final class VolumeSlider: NSView {
 
 private final class OverlayBarView: NSView {
     var onScroll: ((NSEvent) -> Void)?
+    private var usesGlass = false
 
     override var isOpaque: Bool { false }
 
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+        if #available(macOS 26.0, *) {
+            let glass = PassthroughGlassView()
+            glass.style = .regular
+            if #available(macOS 27.0, *) {
+                glass.effectIsInteractive = true
+            }
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(glass, positioned: .below, relativeTo: nil)
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+            usesGlass = true
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
     override func draw(_ dirtyRect: NSRect) {
+        if usesGlass { return }
         guard let ctx = NSGraphicsContext.current?.cgContext else { return }
         let colors = [
             NSColor.black.withAlphaComponent(0).cgColor,
@@ -432,7 +458,7 @@ private final class PassthroughLabel: NSTextField {
 // MARK: - Player window
 
 /// Maxed local player: instant open, aggressive scrub, gapless loop. Never minimizes to Dock.
-final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
+final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, MediaKeyHandling {
     private(set) var videoURL: URL
     private let cascadeOrigin: NSPoint
     private var queuePlayer: AVQueuePlayer?
@@ -448,7 +474,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var currentRate: Float = 1.0
     private var durationSeconds: Double = 0
     private var isScrubbing = false
-    private var timeObserver: Any?
     private var keyMonitor: Any?
     private var statusObservation: NSKeyValueObservation?
     private var lastCoarseSeekAt: CFAbsoluteTime = 0
@@ -477,10 +502,13 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private static let controlsHideDelay: TimeInterval = 2.4
     /// Fraction of the clip traversed by that full swipe (4% — same finger travel, any length).
     private static let scrollTimelineFraction: Double = 0.04
-    /// Cap coarse seeks during scroll scrub (10/s) so 3.5K doesn't choke AVPlayer.
-    private static let scrollSeekInterval: Double = 0.10
-    /// Mouse-drag scrub coarse seek cap (also clip-aware, not display Hz).
-    private static let dragSeekInterval: Double = 1.0 / 15.0
+    private var playheadLink: CADisplayLink?
+    private var pendingPlayheadSeconds: Double?
+    private var pendingPlayheadSince: CFAbsoluteTime = 0
+    private static let mediaHoldScrubFractionPerSecond: Double = 0.10
+    private var mediaHoldScrubActive = false
+    private var mediaHoldScrubForward = false
+    private var mediaHoldScrubWork: DispatchWorkItem?
 
     init(videoURL: URL, initialCascadePoint: NSPoint) {
         self.videoURL = videoURL
@@ -499,7 +527,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         window.title = videoURL.lastPathComponent
         window.isReleasedWhenClosed = false
         window.acceptsMouseMovedEvents = true
-        window.isExcludedFromWindowsMenu = true
+        window.isExcludedFromWindowsMenu = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.tabbingMode = .disallowed
         window.minSize = NSSize(width: 320, height: 200)
@@ -616,7 +644,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 10),
             scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
             scrubBar.bottomAnchor.constraint(equalTo: controlsBar.bottomAnchor, constant: -16),
-            scrubBar.heightAnchor.constraint(equalToConstant: 24),
+            scrubBar.heightAnchor.constraint(equalToConstant: 16),
 
             elapsedLabel.leadingAnchor.constraint(equalTo: controlsBar.leadingAnchor, constant: 12),
             elapsedLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
@@ -680,18 +708,32 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private var didApplyNativeSize = false
     private var didAttachPlayer = false
 
-    /// Playhead tick rate = clip fps (24 / 29.97 / 30 / 60 …), not display Hz.
-    private var playheadHz: Double {
+    /// Monitor refresh (ProMotion 120, external 60, …). Video stays at native fps; frames are held to match Hz.
+    private var displayRefreshHz: Double {
+        let hz = window?.screen?.maximumFramesPerSecond
+            ?? NSScreen.main?.maximumFramesPerSecond
+            ?? 60
+        return max(30, Double(hz))
+    }
+
+    private var frameDuration: Double {
         let fps = Double(videoFrameRate)
-        guard fps > 1 else { return 30 }
-        return min(120, max(12, fps))
+        return fps > 1 ? 1.0 / fps : 1.0 / 30.0
+    }
+
+    /// Live scrub seeks once per vsync, capped at the display rate (M5 Pro can take 120).
+    private var liveSeekInterval: Double {
+        1.0 / min(max(displayRefreshHz, 30), 120)
     }
 
     private func bootPlayerFast() {
         let targetURL = videoURL
         AssetCache.loadFrameRate(videoURL) { [weak self] fps in
             guard let self, self.videoURL == targetURL else { return }
-            if let fps, fps > 0 { self.videoFrameRate = fps }
+            if let fps, fps > 0 {
+                self.videoFrameRate = fps
+                self.applyFrameTiming()
+            }
             self.didResolveFrameRate = true
             self.tryAttachAndReveal()
         }
@@ -821,10 +863,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
 
         playerLooper = AVPlayerLooper(player: player, templateItem: templateItem)
 
-        let interval = CMTime(seconds: 1.0 / playheadHz, preferredTimescale: 600)
-        timeObserver = player.addPeriodicTimeObserver(forInterval: interval, queue: .main) { [weak self] time in
-            self?.playerTimeFired(time)
-        }
+        applyFrameTiming()
+        startPlayheadLink()
 
         statusObservation = templateItem.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard let self else { return }
@@ -839,6 +879,33 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         didReveal = true
         slamOpaqueFront()
         scheduleHideControls()
+        MediaKeys.shared.refreshNowPlaying()
+    }
+
+    private func applyFrameTiming() {
+        let hz = Float(displayRefreshHz)
+        playheadLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: hz, preferred: hz)
+    }
+
+    private func startPlayheadLink() {
+        stopPlayheadLink()
+        guard let window else { return }
+        let link = window.displayLink(target: self, selector: #selector(playheadTick(_:)))
+        let hz = Float(displayRefreshHz)
+        link.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: hz, preferred: hz)
+        link.add(to: .main, forMode: .common)
+        playheadLink = link
+        applyFrameTiming()
+    }
+
+    private func stopPlayheadLink() {
+        playheadLink?.invalidate()
+        playheadLink = nil
+    }
+
+    @objc private func playheadTick(_ link: CADisplayLink) {
+        guard let player = queuePlayer else { return }
+        playerTimeFired(player.currentTime())
     }
 
     /// Opaque black window — raise above Finder handoff while this window is key.
@@ -955,7 +1022,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
 
     private func flashRate() {
         guard rateHUD != nil else { return }
-        rateHUD.stringValue = Self.formatRate(currentRate)
+        rateHUD.stringValue = PlaybackFormatting.formatRate(currentRate)
         rateHUD.isHidden = false
         NSAnimationContext.runAnimationGroup { ctx in
             ctx.duration = 0.08
@@ -973,10 +1040,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
         rateHUDHideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
-    }
-
-    private static func formatRate(_ rate: Float) -> String {
-        String(format: "%g×", rate)
     }
 
     // MARK: - Scrub
@@ -1033,12 +1096,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         scrollSeekPending = seconds
         let now = CFAbsoluteTimeGetCurrent()
         let elapsed = now - lastScrollSeekAt
-        if elapsed >= Self.scrollSeekInterval {
+        if elapsed >= liveSeekInterval {
             flushScrollSeek()
             return
         }
         scrollSeekWork?.cancel()
-        let delay = Self.scrollSeekInterval - elapsed
+        let delay = liveSeekInterval - elapsed
         let work = DispatchWorkItem { [weak self] in
             self?.flushScrollSeek()
         }
@@ -1069,7 +1132,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         seek(to: target, precise: true) { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
-            self.queuePlayer?.playImmediately(atRate: self.currentRate)
+            if let player = self.queuePlayer, player.rate == 0 {
+                player.playImmediately(atRate: self.currentRate)
+            }
             self.scheduleHideControls()
         }
     }
@@ -1085,7 +1150,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         updateTimeLabels(current: seconds)
 
         let now = CFAbsoluteTimeGetCurrent()
-        guard now - lastCoarseSeekAt >= Self.dragSeekInterval else { return }
+        guard now - lastCoarseSeekAt >= liveSeekInterval else { return }
         lastCoarseSeekAt = now
         seek(to: seconds, precise: false)
     }
@@ -1095,9 +1160,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         seek(to: seconds, precise: true) { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
-            let actual = self.queuePlayer?.currentTime().seconds ?? seconds
-            if actual.isFinite {
-                self.setScrubBarTime(actual)
+            if let player = self.queuePlayer, player.rate == 0 {
+                player.playImmediately(atRate: self.currentRate)
             }
         }
         updateTimeLabels(current: seconds)
@@ -1123,57 +1187,60 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         let wasPlaying = player.rate != 0
         seekSerial += 1
         let serial = seekSerial
-        let time = CMTime(seconds: max(0, seconds), preferredTimescale: 600)
+        let clamped = max(0, seconds)
+        let time = CMTime(seconds: clamped, preferredTimescale: 600)
+        pendingPlayheadSeconds = clamped
+        pendingPlayheadSince = CFAbsoluteTimeGetCurrent()
 
-        if precise {
-            player.seek(to: time, toleranceBefore: .zero, toleranceAfter: .zero) { [weak self] finished in
-                guard let self else {
-                    completion?()
-                    return
-                }
-                if finished, self.seekSerial == serial, wasPlaying, player.rate == 0 {
-                    player.rate = self.currentRate
-                }
+        let slop = precise ? CMTime.zero : CMTime(seconds: frameDuration, preferredTimescale: 600)
+        player.seek(to: time, toleranceBefore: slop, toleranceAfter: slop) { [weak self] finished in
+            guard let self else {
                 completion?()
+                return
             }
-        } else {
-            player.seek(
-                to: time,
-                toleranceBefore: .positiveInfinity,
-                toleranceAfter: .positiveInfinity
-            )
-            // Only kick rate back if the seek stalled playback — don't re-hit rate every coarse seek.
+            guard finished, self.seekSerial == serial else {
+                completion?()
+                return
+            }
             if wasPlaying, player.rate == 0 {
-                player.rate = currentRate
+                player.rate = self.currentRate
             }
             completion?()
         }
     }
 
     private func playerTimeFired(_ time: CMTime) {
-        guard !isScrubbing, !scrollScrubActive else { return }
+        guard !isScrubbing, !scrollScrubActive, !arrowScrubActive, !mediaHoldScrubActive else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
-        // Looper resets item time at wrap.
-        if durationSeconds > 0, seconds + 0.25 < scrubBar.value {
-            setScrubBarTime(seconds)
-        } else {
-            setScrubBarTime(min(seconds, scrubBar.maxValue))
+
+        let slop = frameDuration * 2
+        if let pending = pendingPlayheadSeconds {
+            let waited = CFAbsoluteTimeGetCurrent() - pendingPlayheadSince
+            let caughtUp = abs(seconds - pending) <= slop
+            let looped = durationSeconds > 1 && seconds < slop && pending > durationSeconds - 0.5
+            if caughtUp || looped || waited > 0.22 {
+                pendingPlayheadSeconds = nil
+            } else {
+                return
+            }
         }
+
+        let playing = (queuePlayer?.rate ?? 0) != 0
+        if playing, seconds + slop < scrubBar.value {
+            let wrapped = durationSeconds > 1 && seconds < 0.5 && scrubBar.value > durationSeconds * 0.7
+            if wrapped {
+                setScrubBarTime(seconds)
+            }
+            return
+        }
+        setScrubBarTime(min(seconds, scrubBar.maxValue))
     }
 
     private func updateTimeLabels(current: Double) {
-        elapsedLabel.stringValue = Self.formatTime(current)
+        elapsedLabel.stringValue = PlaybackFormatting.formatTime(current)
         let remaining = max(durationSeconds - current, 0)
-        remainingLabel.stringValue = durationSeconds > 0 ? "-\(Self.formatTime(remaining))" : "--:--"
-    }
-
-    private static func formatTime(_ seconds: Double) -> String {
-        guard seconds.isFinite else { return "0:00" }
-        let total = Int(seconds.rounded(.down))
-        let m = total / 60
-        let s = total % 60
-        return String(format: "%d:%02d", m, s)
+        remainingLabel.stringValue = durationSeconds > 0 ? "-\(PlaybackFormatting.formatTime(remaining))" : "--:--"
     }
 
     // MARK: - Keyboard
@@ -1201,6 +1268,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     }
 
     private func handleKey(_ event: NSEvent) -> Bool {
+        let commandHeld = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
+        if commandHeld, event.charactersIgnoringModifiers?.lowercased() == "q" {
+            NSApp.terminate(nil)
+            return true
+        }
+
         if isLooperPlaybackShortcut(event), !hasActivePlayback {
             return false
         }
@@ -1252,6 +1325,70 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         }
     }
 
+    var mediaTitle: String { videoURL.lastPathComponent }
+    var mediaElapsed: Double { scrubBar?.value ?? 0 }
+    var mediaDuration: Double { durationSeconds }
+    var mediaRate: Float { queuePlayer?.rate ?? 0 }
+    var mediaIsPlaying: Bool { (queuePlayer?.rate ?? 0) != 0 }
+
+    func mediaTogglePlayPause() {
+        togglePlayPause()
+        MediaKeys.shared.refreshNowPlaying()
+    }
+
+    func mediaAdjustVolume(by delta: Float) {
+        adjustVolume(by: delta)
+    }
+
+    func mediaToggleMute() {
+        toggleMute()
+    }
+
+    func mediaBeginScrub(forward: Bool) {
+        guard hasActivePlayback else { return }
+        if mediaHoldScrubActive, mediaHoldScrubForward == forward { return }
+        if mediaHoldScrubActive { stopMediaHoldScrub(finish: false) }
+        mediaHoldScrubActive = true
+        mediaHoldScrubForward = forward
+        if !scrollScrubActive {
+            scrollScrubActive = true
+            showControls()
+            scrubStarted()
+        }
+        mediaHoldTick()
+    }
+
+    func mediaEndScrub() {
+        stopMediaHoldScrub(finish: true)
+    }
+
+    private func mediaHoldTick() {
+        guard mediaHoldScrubActive else { return }
+        let duration = max(durationSeconds, scrubBar.maxValue, 0.001)
+        let interval = liveSeekInterval
+        let step = duration * Self.mediaHoldScrubFractionPerSecond * interval
+        let delta = mediaHoldScrubForward ? step : -step
+        let next = min(duration, max(0, scrubBar.value + delta))
+        setScrubBarTime(next, forceRedraw: true)
+        scheduleScrollSeek(to: next)
+        mediaHoldScrubWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            self?.mediaHoldTick()
+        }
+        mediaHoldScrubWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+    }
+
+    private func stopMediaHoldScrub(finish: Bool) {
+        mediaHoldScrubWork?.cancel()
+        mediaHoldScrubWork = nil
+        guard mediaHoldScrubActive else { return }
+        mediaHoldScrubActive = false
+        if finish {
+            finishScrollScrub()
+        }
+    }
+
     private func togglePlayPause() {
         guard let player = queuePlayer else { return }
         if player.rate == 0 {
@@ -1259,6 +1396,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         } else {
             player.rate = 0
         }
+        MediaKeys.shared.refreshNowPlaying()
     }
 
     private func applyVolume(_ volume: Float) {
@@ -1316,7 +1454,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         updateTimeLabels(current: target)
 
         let now = CFAbsoluteTimeGetCurrent()
-        if now - lastArrowSeekAt > (1.0 / 15.0) {
+        if now - lastArrowSeekAt > liveSeekInterval {
             lastArrowSeekAt = now
             seek(to: target, precise: false)
         }
@@ -1337,11 +1475,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
             self.arrowScrubActive = false
             self.isScrubbing = false
             if shouldResume {
-                self.queuePlayer?.playImmediately(atRate: self.currentRate)
-            }
-            let actual = self.queuePlayer?.currentTime().seconds ?? target
-            if actual.isFinite {
-                self.setScrubBarTime(actual)
+                if let player = self.queuePlayer, player.rate == 0 {
+                    player.playImmediately(atRate: self.currentRate)
+                }
             }
             self.scheduleHideControls()
         }
@@ -1430,6 +1566,11 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         window?.orderFrontRegardless()
         showControls()
         scheduleHideControls()
+        MediaKeys.shared.refreshNowPlaying()
+    }
+
+    func windowDidChangeScreen(_ notification: Notification) {
+        startPlayheadLink()
     }
 
     func windowDidResignKey(_ notification: Notification) {
@@ -1461,13 +1602,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
     private func tearDownPlayback(removeKeyMonitor: Bool = true) {
         statusObservation?.invalidate()
         statusObservation = nil
-        if let timeObserver, let queuePlayer {
-            queuePlayer.removeTimeObserver(timeObserver)
-            self.timeObserver = nil
-        }
+        stopPlayheadLink()
+        pendingPlayheadSeconds = nil
         scrollSeekWork?.cancel()
         scrollSeekWork = nil
         scrollSeekPending = nil
+        scrollEndWork?.cancel()
+        scrollEndWork = nil
+        mediaHoldScrubWork?.cancel()
+        mediaHoldScrubWork = nil
+        mediaHoldScrubActive = false
         arrowScrubEndWork?.cancel()
         arrowScrubEndWork = nil
         arrowScrubActive = false
@@ -1475,6 +1619,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate {
         hideControlsWork = nil
         rateHUDHideWork?.cancel()
         rateHUDHideWork = nil
+        AssetCache.cancelLoads(for: videoURL)
         if removeKeyMonitor, let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)
             self.keyMonitor = nil

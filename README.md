@@ -1,7 +1,7 @@
 # Looper
 
 [![Download](https://img.shields.io/github/v/release/RazorBackRoar/Looper?style=for-the-badge&label=Download%20DMG&color=FF8C00)](https://github.com/RazorBackRoar/Looper/releases/latest)
-[![Version](https://img.shields.io/badge/version-1.1.0-blue?style=for-the-badge)](https://github.com/RazorBackRoar/Looper/releases/tag/v1.1.0)
+[![Version](https://img.shields.io/badge/version-1.1.1-blue?style=for-the-badge)](https://github.com/RazorBackRoar/Looper/releases/tag/v1.1.1)
 [![CI](https://img.shields.io/github/actions/workflow/status/RazorBackRoar/Looper/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/RazorBackRoar/Looper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blueviolet?style=for-the-badge)](LICENSE)
 [![Swift](https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org/)
@@ -26,7 +26,7 @@ Double-click or **Open With** from Finder. Set as the default player with Get In
 
 - **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
 - **Instant open** — parallel size + playable probe; native resolution window
-- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All; closing the last window quits the app
+- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All; closing the last window quits the app. Menu-bar extra lists open windows, recent files, and **Quit Looper** (`⌘Q`) while a loop is open.
 - **Multi-window** — cascade placement + per-file frame memory
 - **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
@@ -48,7 +48,11 @@ Focus the video window first.
 
 | Key | Action |
 | ----- | -------- |
+| **⌘Q** | Quit Looper |
 | **Space** | Pause / resume |
+| **F8** | Pause / resume (media key) |
+| **F7** / **F9** | Hold to scrub backward / forward; release to stop |
+| **Volume up / down / mute** | Looper volume (not system volume) |
 | **M** | Mute / unmute |
 | **1** | Toggle 50% ↔ 100% speed (rate flashes on screen) |
 | **L** | Rotate counter-clockwise 90° (display only) |

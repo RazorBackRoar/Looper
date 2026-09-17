@@ -4,9 +4,9 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 ## Learned User Preferences
 
-- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Never minimize player windows to the Dock; close means that window is gone.
+- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Never minimize player windows to the Dock; close means that window is gone. While any loop is open, a menu-bar extra lists open windows, Open Recent, and Quit (`⌘Q`).
 - Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar. Do not use a window pop/zoom-open animation; Finder’s thumbnail zoom can clip through the player on first open.
-- Play content and playhead at the clip’s native fps (usually 30 or 60) — do not fake 120 fps video or drive the playhead from display Hz. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
+- Play content at the clip’s native fps (30 stays 30, 60 stays 60). Present on the monitor’s refresh: 30fps on 60Hz holds frames 2:1, 60fps on 60Hz is 1:1, and the same idea on 120Hz ProMotion. Drive the playhead from the display link (not a clip-fps timer) so it doesn’t rubber-band. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
 - Spacebar pauses/unpauses; clicking the video must never pause. Return closes only the focused player window, not every open video.
 - Keyboard shortcuts apply only while a Looper video window is focused: `M` mute/unmute, `1` toggle half-speed, `L` rotate. They must do nothing when no Looper video is playing.
 - App icon is orange and white (high-resolution `.icns` / 1024×1024 source).
@@ -20,7 +20,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 - Product is Looper at `Apps/Looper` (Swift / AppKit native video player with gapless looping) — not XQT; the early XQT scaffold was renamed/relocated here.
 - Common Looper test videos live under `~/Desktop/QXT`.
-- AppKit accessory player (hidden from Dock via LSUIElement): Finder double-click / Open With / Get Info → Change All. No status item.
+- AppKit accessory player (hidden from Dock via LSUIElement): Finder double-click / Open With / Get Info → Change All. Status item while loops are open (windows / recents / Quit).
 - Release builds via `scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only.
 - Packaging uses shared `Apps/.razorcore` (`patch-app-branding.sh`, `package-dmg.sh`); same DMG contract as Libra/MetaBurn.
 - `razorbuild Looper` from `Apps/` discovers `scripts/build-mac.sh`; autosync gates Xcode projects with `xcodebuild`.

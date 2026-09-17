@@ -5,6 +5,12 @@ import Foundation
 
 /// Aggressive warm cache tuned for high-RAM Apple Silicon (keep assets hot across opens).
 enum AssetCache {
+    static var defaults = UserDefaults.standard
+    static let sizeDefaultsKey = "Looper.nativeSizes"
+
+    private static let loadLock = NSLock()
+    private static var loadTasks: [String: [UUID: Task<Void, Never>]] = [:]
+
     private static let cache: NSCache<NSString, AVURLAsset> = {
         let c = NSCache<NSString, AVURLAsset>()
         c.countLimit = 128
@@ -21,7 +27,62 @@ enum AssetCache {
     private static let sizeCache = NSCache<NSString, NSValue>()
     private static let fpsCache = NSCache<NSString, NSNumber>()
     private static let hdrCache = NSCache<NSString, NSNumber>()
-    private static let sizeDefaultsKey = "Looper.nativeSizes"
+
+    static func cacheKey(for url: URL) -> String {
+        url.standardizedFileURL.path
+    }
+
+    static func cancelLoads(for url: URL) {
+        cancelLoads(forKey: cacheKey(for: url))
+    }
+
+    static func cancelAllLoads() {
+        loadLock.lock()
+        let all = loadTasks
+        loadTasks.removeAll()
+        loadLock.unlock()
+        for tasks in all.values {
+            for task in tasks.values {
+                task.cancel()
+            }
+        }
+    }
+
+    private static func cancelLoads(forKey key: String) {
+        loadLock.lock()
+        let tasks = loadTasks.removeValue(forKey: key) ?? [:]
+        loadLock.unlock()
+        for task in tasks.values {
+            task.cancel()
+        }
+    }
+
+    @discardableResult
+    private static func runLoad(
+        for url: URL,
+        priority: TaskPriority,
+        operation: @escaping @Sendable () async -> Void
+    ) -> UUID {
+        let key = cacheKey(for: url)
+        let id = UUID()
+        let task = Task.detached(priority: priority) {
+            await operation()
+            AssetCache.finishLoad(key: key, id: id)
+        }
+        loadLock.lock()
+        loadTasks[key, default: [:]][id] = task
+        loadLock.unlock()
+        return id
+    }
+
+    private static func finishLoad(key: String, id: UUID) {
+        loadLock.lock()
+        loadTasks[key]?[id] = nil
+        if loadTasks[key]?.isEmpty == true {
+            loadTasks.removeValue(forKey: key)
+        }
+        loadLock.unlock()
+    }
 
     static func asset(for url: URL) -> AVURLAsset {
         precondition(url.isFileURL, "Looper only opens local files")
@@ -51,7 +112,7 @@ enum AssetCache {
             return value.sizeValue
         }
         guard
-            let dict = UserDefaults.standard.dictionary(forKey: sizeDefaultsKey) as? [String: String],
+            let dict = defaults.dictionary(forKey: sizeDefaultsKey) as? [String: String],
             let raw = dict[url.standardizedFileURL.path]
         else { return nil }
         let parts = raw.split(separator: "x")
@@ -69,21 +130,23 @@ enum AssetCache {
         guard size.width > 1, size.height > 1 else { return }
         let key = url.standardizedFileURL.path as NSString
         sizeCache.setObject(NSValue(size: size), forKey: key)
-        var dict = (UserDefaults.standard.dictionary(forKey: sizeDefaultsKey) as? [String: String]) ?? [:]
+        var dict = (defaults.dictionary(forKey: sizeDefaultsKey) as? [String: String]) ?? [:]
         dict[url.standardizedFileURL.path] = "\(Int(size.width))x\(Int(size.height))"
         // Cap persisted map so it doesn't grow forever.
         if dict.count > 400 {
             dict = Dictionary(uniqueKeysWithValues: dict.suffix(300))
         }
-        UserDefaults.standard.set(dict, forKey: sizeDefaultsKey)
+        defaults.set(dict, forKey: sizeDefaultsKey)
     }
 
     /// Fire-and-forget warm of playable + tracks + duration + size.
     static func preload(_ url: URL) {
         guard url.isFileURL else { return }
         let asset = asset(for: url)
-        Task.detached(priority: .userInitiated) {
+        runLoad(for: url, priority: .userInitiated) {
+            if Task.isCancelled { return }
             _ = try? await asset.load(.isPlayable, .tracks, .duration)
+            if Task.isCancelled { return }
             if cachedNativeSize(for: url) == nil {
                 loadNativeSize(url) { _ in }
             }
@@ -104,10 +167,13 @@ enum AssetCache {
             return
         }
         let asset = asset(for: url)
-        Task.detached(priority: .userInitiated) {
+        runLoad(for: url, priority: .userInitiated) {
             do {
+                if Task.isCancelled { return }
                 let playable = try await asset.load(.isPlayable)
+                if Task.isCancelled { return }
                 _ = try await asset.load(.tracks)
+                if Task.isCancelled { return }
                 let error: Error? = playable ? nil : NSError(
                     domain: "Looper",
                     code: 1,
@@ -115,6 +181,7 @@ enum AssetCache {
                 )
                 await MainActor.run { completion(asset, error) }
             } catch {
+                if Task.isCancelled { return }
                 await MainActor.run { completion(asset, error) }
             }
         }
@@ -126,8 +193,10 @@ enum AssetCache {
             return
         }
         let asset = asset(for: url)
-        Task.detached(priority: .utility) {
+        runLoad(for: url, priority: .utility) {
+            if Task.isCancelled { return }
             let duration = (try? await asset.load(.duration)) ?? .zero
+            if Task.isCancelled { return }
             let seconds = duration.seconds.isFinite ? duration.seconds : 0
             await MainActor.run { completion(seconds) }
         }
@@ -145,23 +214,28 @@ enum AssetCache {
         }
 
         let asset = asset(for: url)
-        Task.detached(priority: .userInitiated) {
+        runLoad(for: url, priority: .userInitiated) {
             do {
+                if Task.isCancelled { return }
                 let tracks = try await asset.loadTracks(withMediaType: .video)
                 guard let track = tracks.first else {
+                    if Task.isCancelled { return }
                     await MainActor.run { completion(nil) }
                     return
                 }
                 let nat = try await track.load(.naturalSize)
                 let transform = try await track.load(.preferredTransform)
+                if Task.isCancelled { return }
                 let rect = CGRect(origin: .zero, size: nat).applying(transform)
                 let size = CGSize(width: abs(rect.width), height: abs(rect.height))
                 let valid = size.width > 1 && size.height > 1 ? size : nil
                 if let valid {
                     storeNativeSize(valid, for: url)
                 }
+                if Task.isCancelled { return }
                 await MainActor.run { completion(valid) }
             } catch {
+                if Task.isCancelled { return }
                 await MainActor.run { completion(nil) }
             }
         }
@@ -179,10 +253,12 @@ enum AssetCache {
         }
 
         let asset = asset(for: url)
-        Task.detached(priority: .userInitiated) {
+        runLoad(for: url, priority: .userInitiated) {
             do {
+                if Task.isCancelled { return }
                 let tracks = try await asset.loadTracks(withMediaType: .video)
                 guard let track = tracks.first else {
+                    if Task.isCancelled { return }
                     await MainActor.run { completion(nil) }
                     return
                 }
@@ -191,8 +267,10 @@ enum AssetCache {
                 if let valid {
                     fpsCache.setObject(NSNumber(value: valid), forKey: url.standardizedFileURL.path as NSString)
                 }
+                if Task.isCancelled { return }
                 await MainActor.run { completion(valid) }
             } catch {
+                if Task.isCancelled { return }
                 await MainActor.run { completion(nil) }
             }
         }
@@ -210,8 +288,10 @@ enum AssetCache {
         }
 
         let asset = asset(for: url)
-        Task.detached(priority: .userInitiated) {
+        runLoad(for: url, priority: .userInitiated) {
+            if Task.isCancelled { return }
             let hdr = await isHDR(asset)
+            if Task.isCancelled { return }
             hdrCache.setObject(NSNumber(value: hdr), forKey: url.standardizedFileURL.path as NSString)
             await MainActor.run { completion(hdr) }
         }

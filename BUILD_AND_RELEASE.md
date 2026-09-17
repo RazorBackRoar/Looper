@@ -10,10 +10,9 @@ macOS 14+), packaged with an ad-hoc or Developer ID–signed `.dmg` via shared
 `Apps/.razorcore` helpers (`patch-app-branding.sh`, `package-dmg.sh`).
 
 Built artifact is a single `Looper.dmg` under `build/Release/`; the `.app`
-bundle is consumed during packaging and not left in the repo. The build also
-replaces `~/Desktop/Looper.dmg`, mounts it on the Desktop, and backs up the
-current `/Applications/Looper.app` to `~/Desktop/Looper backup.zip`. The user
-drags the new `.app` into `/Applications`; the build does not install it.
+bundle is consumed during packaging and not left in the repo. Local builds also
+copy `~/Desktop/Looper.dmg`. The user drags the new `.app` into `/Applications`;
+the build does not install it.
 
 ## Platform Requirements
 
@@ -57,8 +56,8 @@ Output:
 build/Release/Looper.dmg
 ```
 
-Side effect: `/Applications/Looper.app` is replaced (install script stops any
-running Looper process automatically).
+Side effect: `~/Desktop/Looper.dmg` is replaced on local machines. The build does
+not install `/Applications/Looper.app`.
 
 ## DMG contract (shared `.razorcore`)
 
@@ -86,7 +85,7 @@ running Looper process automatically).
 | Symptom | What to try |
 |---------|-------------|
 | Gatekeeper blocks Open With | Clear quarantine on install; **Open Anyway** once |
-| Stale build in use | Re-run `./scripts/build-mac.sh` (replaces `/Applications/Looper.app`) |
+| Stale build in use | Re-run `./scripts/build-mac.sh`, then drag from the Desktop DMG |
 | Finder clip-through on open | Focused window uses floating level; click away to send Looper behind other apps |
 
 ## Related Docs
