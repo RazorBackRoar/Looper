@@ -483,10 +483,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var scrollEndWork: DispatchWorkItem?
     private var scrollSeekWork: DispatchWorkItem?
     private var scrollSeekPending: Double?
-    private var arrowScrubActive = false
-    private var arrowScrubEndWork: DispatchWorkItem?
-    private var lastArrowSeekAt: CFAbsoluteTime = 0
-    private var wasPlayingBeforeArrowScrub = false
     private var lastScrollSeekAt: CFAbsoluteTime = 0
     private var lastKnobPixelX: CGFloat = -1
     private var videoPixelSize: CGSize?
@@ -496,19 +492,25 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var preMuteVolume: Float = 1.0
     private var hideControlsWork: DispatchWorkItem?
     private var rateHUDHideWork: DispatchWorkItem?
-    /// ~one deliberate two-finger swipe on a trackpad (cumulative |delta|).
-    private static let scrollFullGestureDelta: Double = 150
     private static let controlsBarHeight: CGFloat = 52
     private static let controlsHideDelay: TimeInterval = 2.4
-    /// Fraction of the clip traversed by that full swipe (4% — same finger travel, any length).
-    private static let scrollTimelineFraction: Double = 0.04
+    /// AVPlayer cannot usefully absorb >30 seeks/s — 120Hz seeks are what made the picture jump.
+    private static let maxSeekHz: Double = 30
     private var playheadLink: CADisplayLink?
     private var pendingPlayheadSeconds: Double?
     private var pendingPlayheadSince: CFAbsoluteTime = 0
-    private static let mediaHoldScrubFractionPerSecond: Double = 0.10
     private var mediaHoldScrubActive = false
     private var mediaHoldScrubForward = false
-    private var mediaHoldScrubWork: DispatchWorkItem?
+    private var holdScrubStartedAt: CFAbsoluteTime = 0
+    private var lastHoldTickAt: CFAbsoluteTime = 0
+    private var seekInFlight = false
+    private var queuedSeekSeconds: Double?
+    private var queuedSeekPrecise = false
+    private var queuedSeekCompletion: (() -> Void)?
+    private var pausedForWheelScrub = false
+    private var lastScrollDeltaSign: Double = 0
+    private var mouseScrollRemainder: Double = 0
+    private var arrowHoldKeys = Set<UInt16>()
 
     init(videoURL: URL, initialCascadePoint: NSPoint) {
         self.videoURL = videoURL
@@ -721,9 +723,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         return fps > 1 ? 1.0 / fps : 1.0 / 30.0
     }
 
-    /// Live scrub seeks once per vsync, capped at the display rate (M5 Pro can take 120).
+    /// Live scrub seeks at most 30/s so AVPlayer doesn't queue jumps.
     private var liveSeekInterval: Double {
-        1.0 / min(max(displayRefreshHz, 30), 120)
+        1.0 / Self.maxSeekHz
     }
 
     private func bootPlayerFast() {
@@ -904,6 +906,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     @objc private func playheadTick(_ link: CADisplayLink) {
+        if mediaHoldScrubActive {
+            holdScrubTick()
+            return
+        }
         guard let player = queuePlayer else { return }
         playerTimeFired(player.currentTime())
     }
@@ -954,7 +960,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func scheduleHideControls(delay: TimeInterval? = nil) {
-        if isScrubbing || scrollScrubActive { return }
+        if isScrubbing || scrollScrubActive || mediaHoldScrubActive { return }
         hideControlsWork?.cancel()
         let wait = delay ?? Self.controlsHideDelay
         let work = DispatchWorkItem { [weak self] in
@@ -965,13 +971,13 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func hideControls() {
-        if isScrubbing || scrollScrubActive { return }
+        if isScrubbing || scrollScrubActive || mediaHoldScrubActive { return }
         guard let bar = controlsBar else { return }
         NSAnimationContext.runAnimationGroup({ ctx in
             ctx.duration = 0.22
             bar.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            guard let self, !self.isScrubbing, !self.scrollScrubActive else { return }
+            guard let self, !self.isScrubbing, !self.scrollScrubActive, !self.mediaHoldScrubActive else { return }
             if self.controlsBar.alphaValue < 0.05 {
                 self.controlsBar.isHidden = true
             }
@@ -1045,51 +1051,80 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     // MARK: - Scrub
 
     /// Scroll/swipe anywhere: up or right = forward, down or left = rewind.
-    /// No inertia — finger contact only; play resumes after the seek lands (no playhead bounce).
+    /// Mouse (including Magic Mouse) never scales by clip length.
     private func handleScrollWheel(_ event: NSEvent) {
-        // Ignore trackpad momentum / inertia entirely.
         if event.momentumPhase != [] { return }
+        if mediaHoldScrubActive { return }
 
         let usingX = abs(event.scrollingDeltaX) >= abs(event.scrollingDeltaY)
         var delta = usingX ? event.scrollingDeltaX : -event.scrollingDeltaY
         if event.isDirectionInvertedFromDevice {
             delta = -delta
         }
-        // Line-based mouse wheels report ±1 per notch; map that onto the trackpad pixel scale.
-        if !event.hasPreciseScrollingDeltas {
-            delta *= 30
-        } else if abs(delta) < 0.4 {
-            // Logitech high-res wheels send tiny reverse ticks that bounce the knob.
-            delta = 0
+
+        // Empty phase = mouse. Trackpad always has began/changed/ended.
+        let isMouse = event.phase == []
+        var mediaDelta = 0.0
+
+        if isMouse {
+            if lastScrollDeltaSign != 0, delta * lastScrollDeltaSign < 0, abs(delta) < 3 {
+                delta = 0
+            }
+            if event.hasPreciseScrollingDeltas {
+                mediaDelta = PlaybackScrubMath.consumeMousePixels(delta, remainder: &mouseScrollRemainder)
+            } else if delta != 0 {
+                mouseScrollRemainder = 0
+                mediaDelta = (delta > 0 ? 1 : -1) * PlaybackScrubMath.mouseNotchStep()
+            }
+        } else {
+            mouseScrollRemainder = 0
+            if event.hasPreciseScrollingDeltas, abs(delta) < 0.4 {
+                delta = 0
+            }
+            if delta != 0 {
+                let duration = max(durationSeconds, scrubBar.maxValue, 0.001)
+                let sign: Double = delta > 0 ? 1 : -1
+                mediaDelta = sign * PlaybackScrubMath.trackpadStep(delta: abs(delta), duration: duration)
+            }
         }
 
-        if event.phase == .began || (!scrollScrubActive && delta != 0) {
+        if event.phase == .began || (!scrollScrubActive && mediaDelta != 0) {
             if !scrollScrubActive {
                 scrollScrubActive = true
                 showControls()
                 scrubStarted()
+                if isMouse {
+                    pauseForWheelScrubIfNeeded()
+                }
             }
         }
 
-        if delta != 0 {
+        if mediaDelta != 0 {
+            lastScrollDeltaSign = mediaDelta > 0 ? 1 : -1
             let duration = max(durationSeconds, scrubBar.maxValue, 0.001)
-            let secondsPerUnit = duration * Self.scrollTimelineFraction / Self.scrollFullGestureDelta
-            let next = min(duration, max(0, scrubBar.value + delta * secondsPerUnit))
+            let next = min(duration, max(0, scrubBar.value + mediaDelta))
             setScrubBarTime(next, forceRedraw: true)
             scheduleScrollSeek(to: next)
         }
 
         if event.phase == .ended || event.phase == .cancelled {
+            mouseScrollRemainder = 0
             finishScrollScrub()
-        } else if scrollScrubActive, event.phase == [] {
-            // Clicky / Logitech wheel — no phase events. Wait for the burst to stop.
+        } else if scrollScrubActive, isMouse {
             scrollEndWork?.cancel()
             let work = DispatchWorkItem { [weak self] in
+                self?.mouseScrollRemainder = 0
                 self?.finishScrollScrub()
             }
             scrollEndWork = work
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.28, execute: work)
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
         }
+    }
+
+    private func pauseForWheelScrubIfNeeded() {
+        guard let player = queuePlayer, player.rate != 0 else { return }
+        pausedForWheelScrub = true
+        player.rate = 0
     }
 
     private func scheduleScrollSeek(to seconds: Double) {
@@ -1121,19 +1156,23 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         scrollEndWork = nil
         scrollSeekWork?.cancel()
         scrollSeekWork = nil
+        lastScrollDeltaSign = 0
+        mouseScrollRemainder = 0
         guard scrollScrubActive else { return }
         scrollScrubActive = false
+        if mediaHoldScrubActive { return }
 
         let target = scrollSeekPending ?? scrubBar.value
         scrollSeekPending = nil
         setScrubBarTime(target, forceRedraw: true)
 
-        // Stay in scrub until the seek lands — playing from the old time is what bounced the knob.
         seek(to: target, precise: true) { [weak self] in
             guard let self else { return }
+            if self.mediaHoldScrubActive { return }
             self.isScrubbing = false
-            if let player = self.queuePlayer, player.rate == 0 {
-                player.playImmediately(atRate: self.currentRate)
+            if self.pausedForWheelScrub {
+                self.pausedForWheelScrub = false
+                self.queuePlayer?.playImmediately(atRate: self.currentRate)
             }
             self.scheduleHideControls()
         }
@@ -1180,29 +1219,59 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func seek(to seconds: Double, precise: Bool, completion: (() -> Void)? = nil) {
+        let clamped = max(0, seconds)
+        pendingPlayheadSeconds = clamped
+        pendingPlayheadSince = CFAbsoluteTimeGetCurrent()
+
+        if seekInFlight {
+            queuedSeekSeconds = clamped
+            queuedSeekPrecise = queuedSeekPrecise || precise
+            if let completion {
+                let previous = queuedSeekCompletion
+                queuedSeekCompletion = {
+                    previous?()
+                    completion()
+                }
+            }
+            return
+        }
+        performSeek(clamped, precise: precise, completion: completion)
+    }
+
+    private func performSeek(_ seconds: Double, precise: Bool, completion: (() -> Void)?) {
         guard let player = queuePlayer else {
             completion?()
             return
         }
-        let wasPlaying = player.rate != 0
+        seekInFlight = true
         seekSerial += 1
         let serial = seekSerial
-        let clamped = max(0, seconds)
-        let time = CMTime(seconds: clamped, preferredTimescale: 600)
-        pendingPlayheadSeconds = clamped
-        pendingPlayheadSince = CFAbsoluteTimeGetCurrent()
-
-        let slop = precise ? CMTime.zero : CMTime(seconds: frameDuration, preferredTimescale: 600)
+        let time = CMTime(seconds: seconds, preferredTimescale: 600)
+        // Live scrub uses a small window so we don't stack keyframe hops; end-of-gesture is exact.
+        let slop = precise ? CMTime.zero : CMTime(seconds: max(frameDuration * 2, 0.05), preferredTimescale: 600)
         player.seek(to: time, toleranceBefore: slop, toleranceAfter: slop) { [weak self] finished in
             guard let self else {
                 completion?()
                 return
             }
-            guard finished, self.seekSerial == serial else {
-                completion?()
+            self.seekInFlight = false
+            if let queued = self.queuedSeekSeconds {
+                self.queuedSeekSeconds = nil
+                let qPrecise = self.queuedSeekPrecise
+                let qCompletion = self.queuedSeekCompletion
+                self.queuedSeekPrecise = false
+                self.queuedSeekCompletion = nil
+                self.performSeek(queued, precise: qPrecise) {
+                    completion?()
+                    qCompletion?()
+                }
                 return
             }
-            if wasPlaying, player.rate == 0 {
+            if finished, self.seekSerial == serial,
+               player.rate == 0,
+               !self.pausedForWheelScrub,
+               !self.scrollScrubActive,
+               !self.mediaHoldScrubActive {
                 player.rate = self.currentRate
             }
             completion?()
@@ -1210,7 +1279,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func playerTimeFired(_ time: CMTime) {
-        guard !isScrubbing, !scrollScrubActive, !arrowScrubActive, !mediaHoldScrubActive else { return }
+        guard !isScrubbing, !scrollScrubActive, !mediaHoldScrubActive else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
 
@@ -1261,7 +1330,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func installKeyMonitor() {
-        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: .keyDown) { [weak self] event in
+        keyMonitor = NSEvent.addLocalMonitorForEvents(matching: [.keyDown, .keyUp]) { [weak self] event in
             guard let self, self.window?.isKeyWindow == true else { return event }
             return self.handleKey(event) ? nil : event
         }
@@ -1269,9 +1338,35 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let commandHeld = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
-        if commandHeld, event.charactersIgnoringModifiers?.lowercased() == "q" {
+        if event.type == .keyDown, commandHeld, event.charactersIgnoringModifiers?.lowercased() == "q" {
             NSApp.terminate(nil)
             return true
+        }
+
+        // F7 / F9 as standard function keys (not HID media keys) — hold to scrub.
+        switch event.keyCode {
+        case 98: // F7 rewind
+            if event.type == .keyDown { startHoldScrub(forward: false) }
+            else { stopHoldScrub() }
+            return true
+        case 101: // F9 fast-forward
+            if event.type == .keyDown { startHoldScrub(forward: true) }
+            else { stopHoldScrub() }
+            return true
+        case 100: // F8 play/pause
+            if event.type == .keyDown, !event.isARepeat { togglePlayPause() }
+            return true
+        default:
+            break
+        }
+
+        if event.type == .keyUp {
+            if event.keyCode == 123 || event.keyCode == 124 {
+                arrowHoldKeys.remove(event.keyCode)
+                if arrowHoldKeys.isEmpty { stopHoldScrub() }
+                return true
+            }
+            return false
         }
 
         if isLooperPlaybackShortcut(event), !hasActivePlayback {
@@ -1309,10 +1404,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             window?.close()
             return true
         case 123:
-            arrowScrub(forward: false, fast: event.modifierFlags.contains(.shift))
+            arrowHoldKeys.insert(123)
+            startHoldScrub(forward: false)
             return true
         case 124:
-            arrowScrub(forward: true, fast: event.modifierFlags.contains(.shift))
+            arrowHoldKeys.insert(124)
+            startHoldScrub(forward: true)
             return true
         case 125:
             adjustVolume(by: -0.05)
@@ -1345,47 +1442,63 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     func mediaBeginScrub(forward: Bool) {
-        guard hasActivePlayback else { return }
-        if mediaHoldScrubActive, mediaHoldScrubForward == forward { return }
-        if mediaHoldScrubActive { stopMediaHoldScrub(finish: false) }
-        mediaHoldScrubActive = true
-        mediaHoldScrubForward = forward
-        if !scrollScrubActive {
-            scrollScrubActive = true
-            showControls()
-            scrubStarted()
-        }
-        mediaHoldTick()
+        startHoldScrub(forward: forward)
     }
 
     func mediaEndScrub() {
-        stopMediaHoldScrub(finish: true)
+        stopHoldScrub()
     }
 
-    private func mediaHoldTick() {
+    /// Hold F7/F9 / arrows / media rewind-fast: display-link shuttle, no extra clicks.
+    private func startHoldScrub(forward: Bool) {
+        guard hasActivePlayback else { return }
+        showControls()
+        hideControlsWork?.cancel()
+        scrollEndWork?.cancel()
+        scrollEndWork = nil
+        mediaHoldScrubForward = forward
+        if mediaHoldScrubActive { return }
+
+        isScrubbing = true
+        if let player = queuePlayer, player.rate != 0 {
+            pausedForWheelScrub = true
+            player.rate = 0
+        }
+        mediaHoldScrubActive = true
+        holdScrubStartedAt = CFAbsoluteTimeGetCurrent()
+        lastHoldTickAt = 0
+        holdScrubTick()
+    }
+
+    private func holdScrubTick() {
         guard mediaHoldScrubActive else { return }
+        let now = CFAbsoluteTimeGetCurrent()
+        if lastHoldTickAt != 0, now - lastHoldTickAt < liveSeekInterval { return }
+        let tick = lastHoldTickAt == 0 ? PlaybackScrubMath.holdTick : min(now - lastHoldTickAt, 0.12)
+        lastHoldTickAt = now
         let duration = max(durationSeconds, scrubBar.maxValue, 0.001)
-        let interval = liveSeekInterval
-        let step = duration * Self.mediaHoldScrubFractionPerSecond * interval
+        let held = now - holdScrubStartedAt
+        let step = PlaybackScrubMath.holdStep(duration: duration, held: held, tick: tick)
         let delta = mediaHoldScrubForward ? step : -step
         let next = min(duration, max(0, scrubBar.value + delta))
         setScrubBarTime(next, forceRedraw: true)
-        scheduleScrollSeek(to: next)
-        mediaHoldScrubWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            self?.mediaHoldTick()
-        }
-        mediaHoldScrubWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + interval, execute: work)
+        seek(to: next, precise: false)
     }
 
-    private func stopMediaHoldScrub(finish: Bool) {
-        mediaHoldScrubWork?.cancel()
-        mediaHoldScrubWork = nil
+    private func stopHoldScrub() {
         guard mediaHoldScrubActive else { return }
         mediaHoldScrubActive = false
-        if finish {
-            finishScrollScrub()
+        lastHoldTickAt = 0
+        let target = scrubBar.value
+        setScrubBarTime(target, forceRedraw: true)
+        seek(to: target, precise: true) { [weak self] in
+            guard let self else { return }
+            self.isScrubbing = false
+            if self.pausedForWheelScrub {
+                self.pausedForWheelScrub = false
+                self.queuePlayer?.playImmediately(atRate: self.currentRate)
+            }
+            self.scheduleHideControls()
         }
     }
 
@@ -1429,58 +1542,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
         volumeSlider.value = Double(player.volume)
         volumeSlider.needsDisplay = true
-    }
-
-    private func arrowScrub(forward: Bool, fast: Bool) {
-        guard let player = queuePlayer else { return }
-
-        if !arrowScrubActive {
-            arrowScrubActive = true
-            isScrubbing = true
-            wasPlayingBeforeArrowScrub = (player.rate != 0)
-            showControls()
-        }
-
-        arrowScrubEndWork?.cancel()
-
-        let current = scrubBar.value
-        let fraction: Double = fast ? 0.025 : 0.012
-        let step = durationSeconds > 0 ? max(0.04, durationSeconds * fraction) : 0.5
-        let delta = forward ? step : -step
-        let target = min(max(current + delta, 0), durationSeconds > 0 ? durationSeconds : current + abs(delta))
-
-        scrubBar.value = target
-        scrubBar.needsDisplay = true
-        updateTimeLabels(current: target)
-
-        let now = CFAbsoluteTimeGetCurrent()
-        if now - lastArrowSeekAt > liveSeekInterval {
-            lastArrowSeekAt = now
-            seek(to: target, precise: false)
-        }
-
-        let work = DispatchWorkItem { [weak self] in
-            self?.finishArrowScrub()
-        }
-        arrowScrubEndWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.18, execute: work)
-    }
-
-    private func finishArrowScrub() {
-        guard arrowScrubActive else { return }
-        let target = scrubBar.value
-        let shouldResume = wasPlayingBeforeArrowScrub
-        seek(to: target, precise: true) { [weak self] in
-            guard let self else { return }
-            self.arrowScrubActive = false
-            self.isScrubbing = false
-            if shouldResume {
-                if let player = self.queuePlayer, player.rate == 0 {
-                    player.playImmediately(atRate: self.currentRate)
-                }
-            }
-            self.scheduleHideControls()
-        }
     }
 
     private func adjustSpeed(by delta: Float) {
@@ -1609,12 +1670,14 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         scrollSeekPending = nil
         scrollEndWork?.cancel()
         scrollEndWork = nil
-        mediaHoldScrubWork?.cancel()
-        mediaHoldScrubWork = nil
         mediaHoldScrubActive = false
-        arrowScrubEndWork?.cancel()
-        arrowScrubEndWork = nil
-        arrowScrubActive = false
+        lastHoldTickAt = 0
+        mouseScrollRemainder = 0
+        pausedForWheelScrub = false
+        seekInFlight = false
+        queuedSeekSeconds = nil
+        queuedSeekCompletion = nil
+        arrowHoldKeys.removeAll()
         hideControlsWork?.cancel()
         hideControlsWork = nil
         rateHUDHideWork?.cancel()

@@ -16,8 +16,8 @@ protocol MediaKeyHandling: AnyObject {
 }
 
 /// F7 / F8 / F9 and volume keys arrive as media-key events, not `keyDown`.
-/// macOS `MPRemoteCommandCenter` covers play/pause (Now Playing). Hold-to-scrub
-/// and Looper volume use system-defined `NSEvent`s (`NX_KEYTYPE_*`).
+/// Holding Rewind/Fast starts as Previous/Next, then flips HID codes — we must
+/// not treat that first key-up as “let go”.
 final class MediaKeys {
     static let shared = MediaKeys()
 
@@ -27,7 +27,10 @@ final class MediaKeys {
     private var systemMonitor: Any?
     private var lastPlayToggleAt: CFAbsoluteTime = 0
     private var lastVolumeAt: CFAbsoluteTime = 0
-    private var holdForward: Bool?
+    private var rewindKeysDown = Set<Int32>()
+    private var forwardKeysDown = Set<Int32>()
+    private var stopHoldWork: DispatchWorkItem?
+    private var holdBeganAt: CFAbsoluteTime = 0
 
     private init() {}
 
@@ -41,6 +44,10 @@ final class MediaKeys {
     func stop() {
         guard started else { return }
         started = false
+        stopHoldWork?.cancel()
+        stopHoldWork = nil
+        rewindKeysDown.removeAll()
+        forwardKeysDown.removeAll()
         if let systemMonitor {
             NSEvent.removeMonitor(systemMonitor)
             self.systemMonitor = nil
@@ -51,7 +58,6 @@ final class MediaKeys {
         center.pauseCommand.removeTarget(nil)
         MPNowPlayingInfoCenter.default().nowPlayingInfo = nil
         MPNowPlayingInfoCenter.default().playbackState = .stopped
-        holdForward = nil
     }
 
     func refreshNowPlaying() {
@@ -129,12 +135,10 @@ final class MediaKeys {
             if isKeyDown { togglePlay() }
             return true
         case .rewind, .previous:
-            if isKeyDown { beginScrub(forward: false) }
-            if isKeyUp { endScrub() }
+            updateHold(key: type.rawValue, down: isKeyDown, up: isKeyUp, forward: false)
             return true
         case .fast, .next:
-            if isKeyDown { beginScrub(forward: true) }
-            if isKeyUp { endScrub() }
+            updateHold(key: type.rawValue, down: isKeyDown, up: isKeyUp, forward: true)
             return true
         case .soundUp:
             if isKeyDown { nudgeVolume(1) }
@@ -148,6 +152,59 @@ final class MediaKeys {
             }
             return true
         }
+    }
+
+    private func updateHold(key: Int32, down: Bool, up: Bool, forward: Bool) {
+        if down {
+            stopHoldWork?.cancel()
+            stopHoldWork = nil
+            let wasIdle = rewindKeysDown.isEmpty && forwardKeysDown.isEmpty
+            if forward {
+                forwardKeysDown.insert(key)
+                rewindKeysDown.removeAll()
+            } else {
+                rewindKeysDown.insert(key)
+                forwardKeysDown.removeAll()
+            }
+            if wasIdle {
+                holdBeganAt = CFAbsoluteTimeGetCurrent()
+            }
+            beginScrub(forward: forward)
+            return
+        }
+        guard up else { return }
+        if forward {
+            forwardKeysDown.remove(key)
+        } else {
+            rewindKeysDown.remove(key)
+        }
+        let stillHolding = forward ? !forwardKeysDown.isEmpty : !rewindKeysDown.isEmpty
+        if stillHolding { return }
+
+        let isScanKey = key == NXKeyType.rewind.rawValue || key == NXKeyType.fast.rawValue
+        if isScanKey {
+            endScrub()
+            return
+        }
+
+        // Tap of Previous/Next: stop now so one click stays a nudge.
+        // Hold flips Previous→Rewind after a beat — wait for that down, don't die on the flip.
+        let held = CFAbsoluteTimeGetCurrent() - holdBeganAt
+        if held < 0.28 {
+            endScrub()
+            return
+        }
+
+        stopHoldWork?.cancel()
+        let work = DispatchWorkItem { [weak self] in
+            guard let self else { return }
+            let holding = forward ? !self.forwardKeysDown.isEmpty : !self.rewindKeysDown.isEmpty
+            if !holding {
+                self.endScrub()
+            }
+        }
+        stopHoldWork = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.5, execute: work)
     }
 
     private func togglePlay() {
@@ -172,17 +229,15 @@ final class MediaKeys {
 
     private func beginScrub(forward: Bool) {
         onMain { [weak self] in
-            guard let self else { return }
-            if self.holdForward == forward { return }
-            self.holdForward = forward
-            self.target?()?.mediaBeginScrub(forward: forward)
+            self?.target?()?.mediaBeginScrub(forward: forward)
         }
     }
 
     private func endScrub() {
         onMain { [weak self] in
             guard let self else { return }
-            self.holdForward = nil
+            self.rewindKeysDown.removeAll()
+            self.forwardKeysDown.removeAll()
             self.target?()?.mediaEndScrub()
             self.refreshNowPlaying()
         }
@@ -190,7 +245,6 @@ final class MediaKeys {
 
     private func nudgeVolume(_ direction: Float) {
         let now = CFAbsoluteTimeGetCurrent()
-        // Repeats from the key are fine; cap the flood a little.
         guard now - lastVolumeAt > 0.04 else { return }
         lastVolumeAt = now
         onMain { [weak self] in

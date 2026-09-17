@@ -164,4 +164,42 @@ final class LooperLogicTests: XCTestCase {
 
         waitForExpectations(timeout: 5)
     }
+
+    // MARK: - PlaybackScrubMath
+
+    func testMouseWheelStepIgnoresClipLength() {
+        XCTAssertEqual(PlaybackScrubMath.mouseNotchStep(), 0.25)
+        var remainder: Double = 0
+        let short = PlaybackScrubMath.consumeMousePixels(8, remainder: &remainder)
+        remainder = 0
+        let long = PlaybackScrubMath.consumeMousePixels(8, remainder: &remainder)
+        XCTAssertEqual(short, 0.25)
+        XCTAssertEqual(long, 0.25)
+        XCTAssertEqual(short, long)
+    }
+
+    func testMagicMousePixelsAccumulateAndCap() {
+        var remainder: Double = 0
+        XCTAssertEqual(PlaybackScrubMath.consumeMousePixels(3, remainder: &remainder), 0)
+        XCTAssertEqual(PlaybackScrubMath.consumeMousePixels(5, remainder: &remainder), 0.25)
+        remainder = 0
+        let burst = PlaybackScrubMath.consumeMousePixels(80, remainder: &remainder)
+        XCTAssertEqual(burst, PlaybackScrubMath.mouseEventCapSeconds)
+        XCTAssertLessThan(burst, 1)
+    }
+
+    func testTrackpadStepCapsPerEvent() {
+        let twoHour = PlaybackScrubMath.trackpadStep(delta: 40, duration: 7200)
+        XCTAssertEqual(twoHour, PlaybackScrubMath.trackpadEventCapSeconds)
+        let nudge = PlaybackScrubMath.trackpadStep(delta: 2, duration: 30)
+        XCTAssertLessThan(nudge, 0.1)
+    }
+
+    func testHoldStepTapIsSmallThenRacesClip() {
+        let tick = PlaybackScrubMath.holdTick
+        let tap = PlaybackScrubMath.holdStep(duration: 7200, held: 0.05, tick: tick)
+        XCTAssertLessThan(tap, 0.4)
+        let flying = PlaybackScrubMath.holdStep(duration: 7200, held: 0.8, tick: tick)
+        XCTAssertGreaterThan(flying, 200)
+    }
 }
