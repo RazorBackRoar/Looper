@@ -301,7 +301,8 @@ enum AssetCache {
         guard let track = try? await asset.loadTracks(withMediaType: .video).first else {
             return false
         }
-        if track.hasMediaCharacteristic(.containsHDRVideo) {
+        let characteristics = (try? await track.load(.mediaCharacteristics)) ?? []
+        if characteristics.contains(.containsHDRVideo) {
             return true
         }
         let formats = (try? await track.load(.formatDescriptions)) ?? []

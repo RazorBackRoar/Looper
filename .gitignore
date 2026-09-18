@@ -5,3 +5,5 @@ xcuserdata/
 *.xcuserstate
 DerivedData/
 .cursor/
+buildServer.json
+.compile

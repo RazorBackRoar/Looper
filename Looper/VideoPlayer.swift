@@ -1644,10 +1644,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         lowerWhenInactive()
     }
 
-    func windowShouldMiniaturize(_ sender: NSWindow) -> Bool {
-        false
-    }
-
     func windowDidMove(_ notification: Notification) {
         saveWindowFrame()
     }

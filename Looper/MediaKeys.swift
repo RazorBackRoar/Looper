@@ -252,7 +252,7 @@ import MediaPlayer
         }
     }
 
-    private func onMain(_ body: @escaping @MainActor () -> Void) {
+    private func onMain(_ body: @escaping @MainActor @Sendable () -> Void) {
         if Thread.isMainThread {
             body()
         } else {
