@@ -87,7 +87,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Spawns an independent video player window for each URL provided.
-    func openVideos(at urls: [URL]) {
+    @MainActor func openVideos(at urls: [URL]) {
         for url in LocalVideoURL.onlyPlayableFiles(urls) {
             let standardPath = url.standardizedFileURL.path
             if let existing = windowControllers.compactMap({ $0 as? VideoPlayerWindowController }).first(where: {
@@ -123,7 +123,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     /// Cleanly removes window controller references when closed.
-    func windowWillClose(_ controller: NSWindowController) {
+    @MainActor func windowWillClose(_ controller: NSWindowController) {
         windowControllers.removeAll { $0 === controller }
         updateStatusItem()
         rebuildRecentsMenu()
@@ -287,7 +287,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    @objc private func focusPlayerWindow(_ sender: NSMenuItem) {
+    @MainActor @objc private func focusPlayerWindow(_ sender: NSMenuItem) {
         guard let player = sender.representedObject as? VideoPlayerWindowController else { return }
         player.window?.makeKeyAndOrderFront(nil)
         player.window?.orderFrontRegardless()
@@ -295,7 +295,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildStatusMenu()
     }
 
-    @objc private func openRecentFile(_ sender: NSMenuItem) {
+    @MainActor @objc private func openRecentFile(_ sender: NSMenuItem) {
         guard let url = sender.representedObject as? URL else { return }
         openVideos(at: [url])
     }

@@ -1,7 +1,7 @@
 import AppKit
 import MediaPlayer
 
-protocol MediaKeyHandling: AnyObject {
+@MainActor protocol MediaKeyHandling: AnyObject {
     var mediaTitle: String { get }
     var mediaElapsed: Double { get }
     var mediaDuration: Double { get }
@@ -18,10 +18,10 @@ protocol MediaKeyHandling: AnyObject {
 /// F7 / F8 / F9 and volume keys arrive as media-key events, not `keyDown`.
 /// Holding Rewind/Fast starts as Previous/Next, then flips HID codes — we must
 /// not treat that first key-up as “let go”.
-final class MediaKeys {
+@MainActor final class MediaKeys {
     static let shared = MediaKeys()
 
-    var target: (() -> MediaKeyHandling?)?
+    var target: (@MainActor () -> MediaKeyHandling?)?
 
     private var started = false
     private var systemMonitor: Any?
@@ -252,7 +252,7 @@ final class MediaKeys {
         }
     }
 
-    private func onMain(_ body: @escaping () -> Void) {
+    private func onMain(_ body: @escaping @MainActor () -> Void) {
         if Thread.isMainThread {
             body()
         } else {

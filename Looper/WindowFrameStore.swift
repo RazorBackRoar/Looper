@@ -3,7 +3,7 @@ import AppKit
 /// WindowFrameStore manages saving and restoring window position and size
 /// keyed by individual video file paths in UserDefaults.
 enum WindowFrameStore {
-    static var defaults = UserDefaults.standard
+    nonisolated(unsafe) static var defaults = UserDefaults.standard
 
     static let framesKey = "Looper.windowFrames"
     static let orderKey = "Looper.windowFrameOrder"

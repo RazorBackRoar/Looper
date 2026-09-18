@@ -5,28 +5,28 @@ import Foundation
 
 /// Aggressive warm cache tuned for high-RAM Apple Silicon (keep assets hot across opens).
 enum AssetCache {
-    static var defaults = UserDefaults.standard
+    nonisolated(unsafe) static var defaults = UserDefaults.standard
     static let sizeDefaultsKey = "Looper.nativeSizes"
 
     private static let loadLock = NSLock()
-    private static var loadTasks: [String: [UUID: Task<Void, Never>]] = [:]
+    private nonisolated(unsafe) static var loadTasks: [String: [UUID: Task<Void, Never>]] = [:]
 
-    private static let cache: NSCache<NSString, AVURLAsset> = {
+    private nonisolated(unsafe) static let cache: NSCache<NSString, AVURLAsset> = {
         let c = NSCache<NSString, AVURLAsset>()
         c.countLimit = 128
         c.totalCostLimit = 1_024 * 1_024 * 1_024 // ~1GB soft budget across entries
         return c
     }()
 
-    private static let posterCache: NSCache<NSString, NSImage> = {
+    private nonisolated(unsafe) static let posterCache: NSCache<NSString, NSImage> = {
         let c = NSCache<NSString, NSImage>()
         c.countLimit = 64
         return c
     }()
 
-    private static let sizeCache = NSCache<NSString, NSValue>()
-    private static let fpsCache = NSCache<NSString, NSNumber>()
-    private static let hdrCache = NSCache<NSString, NSNumber>()
+    private nonisolated(unsafe) static let sizeCache = NSCache<NSString, NSValue>()
+    private nonisolated(unsafe) static let fpsCache = NSCache<NSString, NSNumber>()
+    private nonisolated(unsafe) static let hdrCache = NSCache<NSString, NSNumber>()
 
     static func cacheKey(for url: URL) -> String {
         url.standardizedFileURL.path
@@ -154,7 +154,7 @@ enum AssetCache {
     }
 
     /// Fast path: return as soon as the file is playable (don't wait on duration).
-    static func loadPlayable(_ url: URL, completion: @escaping (AVURLAsset, Error?) -> Void) {
+    static func loadPlayable(_ url: URL, completion: @escaping @MainActor @Sendable (AVURLAsset, Error?) -> Void) {
         guard url.isFileURL else {
             let error = NSError(
                 domain: "Looper",
@@ -187,7 +187,7 @@ enum AssetCache {
         }
     }
 
-    static func loadDuration(_ url: URL, completion: @escaping (Double) -> Void) {
+    static func loadDuration(_ url: URL, completion: @escaping @MainActor @Sendable (Double) -> Void) {
         guard url.isFileURL else {
             DispatchQueue.main.async { completion(0) }
             return
@@ -203,7 +203,7 @@ enum AssetCache {
     }
 
     /// Native pixel size after preferredTransform (rotation-aware).
-    static func loadNativeSize(_ url: URL, completion: @escaping (CGSize?) -> Void) {
+    static func loadNativeSize(_ url: URL, completion: @escaping @MainActor @Sendable (CGSize?) -> Void) {
         guard url.isFileURL else {
             DispatchQueue.main.async { completion(nil) }
             return
@@ -242,7 +242,7 @@ enum AssetCache {
     }
 
     /// Video track nominal frame rate (e.g. 24, 29.97, 30, 60).
-    static func loadFrameRate(_ url: URL, completion: @escaping (Float?) -> Void) {
+    static func loadFrameRate(_ url: URL, completion: @escaping @MainActor @Sendable (Float?) -> Void) {
         guard url.isFileURL else {
             DispatchQueue.main.async { completion(nil) }
             return
@@ -277,7 +277,7 @@ enum AssetCache {
     }
 
     /// True when the video track is HDR (PQ / HLG / Dolby Vision). Unknown → false (SDR).
-    static func loadContainsHDR(_ url: URL, completion: @escaping (Bool) -> Void) {
+    static func loadContainsHDR(_ url: URL, completion: @escaping @MainActor @Sendable (Bool) -> Void) {
         guard url.isFileURL else {
             DispatchQueue.main.async { completion(false) }
             return

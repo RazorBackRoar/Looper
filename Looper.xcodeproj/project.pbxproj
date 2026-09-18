@@ -281,7 +281,7 @@
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				ARCHS = arm64;
 				EXCLUDED_ARCHS = x86_64;
 			};
@@ -311,7 +311,7 @@
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
 				SWIFT_EMIT_LOC_STRINGS = YES;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				ARCHS = arm64;
 				EXCLUDED_ARCHS = x86_64;
 			};
@@ -330,7 +330,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Looper.app/Contents/MacOS/Looper";
 				ARCHS = arm64;
 				EXCLUDED_ARCHS = x86_64;
@@ -350,7 +350,7 @@
 				PRODUCT_NAME = "$(TARGET_NAME)";
 				SDKROOT = macosx;
 				SUPPORTED_PLATFORMS = macosx;
-				SWIFT_VERSION = 5.0;
+				SWIFT_VERSION = 6.0;
 				TEST_HOST = "$(BUILT_PRODUCTS_DIR)/Looper.app/Contents/MacOS/Looper";
 				ARCHS = arm64;
 				EXCLUDED_ARCHS = x86_64;
