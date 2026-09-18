@@ -161,14 +161,14 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private var keyPlayer: VideoPlayerWindowController? {
+    @MainActor private var keyPlayer: VideoPlayerWindowController? {
         let players = windowControllers.compactMap { $0 as? VideoPlayerWindowController }
         return players.first { $0.window?.isKeyWindow == true } ?? players.last
     }
 
     // MARK: - Menu bar (accessory app: status item is the visible menu)
 
-    private func setupMainMenu() {
+    @MainActor private func setupMainMenu() {
         let mainMenu = NSMenu()
 
         let appItem = NSMenuItem()
@@ -201,7 +201,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildRecentsMenu()
     }
 
-    private func updateStatusItem() {
+    @MainActor private func updateStatusItem() {
         if windowControllers.isEmpty {
             if let statusItem {
                 NSStatusBar.system.removeStatusItem(statusItem)
@@ -225,7 +225,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildStatusMenu()
     }
 
-    private func rebuildStatusMenu() {
+    @MainActor private func rebuildStatusMenu() {
         let menu = NSMenu()
 
         let windowsHeader = NSMenuItem(title: "Windows", action: nil, keyEquivalent: "")
@@ -262,7 +262,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusItem?.menu = menu
     }
 
-    private func rebuildRecentsMenu() {
+    @MainActor private func rebuildRecentsMenu() {
         let submenu = NSMenu(title: "Open Recent")
         appendRecentItems(to: submenu)
         if submenu.items.isEmpty {
@@ -276,7 +276,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func appendRecentItems(to menu: NSMenu) {
+    @MainActor private func appendRecentItems(to menu: NSMenu) {
         let recents = WindowFrameStore.recentFileURLs()
         for url in recents {
             let item = NSMenuItem(title: url.lastPathComponent, action: #selector(openRecentFile(_:)), keyEquivalent: "")

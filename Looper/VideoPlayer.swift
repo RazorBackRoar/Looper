@@ -506,7 +506,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var seekInFlight = false
     private var queuedSeekSeconds: Double?
     private var queuedSeekPrecise = false
-    private var queuedSeekCompletion: (() -> Void)?
+    private var queuedSeekCompletion: (@MainActor @Sendable () -> Void)?
     private var pausedForWheelScrub = false
     private var lastScrollDeltaSign: Double = 0
     private var mouseScrollRemainder: Double = 0
@@ -561,7 +561,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         fatalError("init(coder:) has not been implemented")
     }
 
-    deinit {
+    isolated deinit {
         tearDownPlayback()
     }
 
@@ -977,9 +977,11 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             ctx.duration = 0.22
             bar.animator().alphaValue = 0
         }, completionHandler: { [weak self] in
-            guard let self, !self.isScrubbing, !self.scrollScrubActive, !self.mediaHoldScrubActive else { return }
-            if self.controlsBar.alphaValue < 0.05 {
-                self.controlsBar.isHidden = true
+            MainActor.assumeIsolated {
+                guard let self, !self.isScrubbing, !self.scrollScrubActive, !self.mediaHoldScrubActive else { return }
+                if self.controlsBar.alphaValue < 0.05 {
+                    self.controlsBar.isHidden = true
+                }
             }
         })
     }
@@ -1041,7 +1043,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
                 ctx.duration = 0.28
                 self.rateHUD.animator().alphaValue = 0
             }, completionHandler: { [weak self] in
-                self?.rateHUD.isHidden = true
+                MainActor.assumeIsolated {
+                    self?.rateHUD.isHidden = true
+                }
             })
         }
         rateHUDHideWork = work
@@ -1218,7 +1222,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         updateTimeLabels(current: clamped)
     }
 
-    private func seek(to seconds: Double, precise: Bool, completion: (() -> Void)? = nil) {
+    private func seek(to seconds: Double, precise: Bool, completion: (@MainActor @Sendable () -> Void)? = nil) {
         let clamped = max(0, seconds)
         pendingPlayheadSeconds = clamped
         pendingPlayheadSince = CFAbsoluteTimeGetCurrent()
@@ -1238,7 +1242,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         performSeek(clamped, precise: precise, completion: completion)
     }
 
-    private func performSeek(_ seconds: Double, precise: Bool, completion: (() -> Void)?) {
+    private func performSeek(_ seconds: Double, precise: Bool, completion: (@MainActor @Sendable () -> Void)?) {
         guard let player = queuePlayer else {
             completion?()
             return
@@ -1250,31 +1254,33 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         // Live scrub uses a small window so we don't stack keyframe hops; end-of-gesture is exact.
         let slop = precise ? CMTime.zero : CMTime(seconds: max(frameDuration * 2, 0.05), preferredTimescale: 600)
         player.seek(to: time, toleranceBefore: slop, toleranceAfter: slop) { [weak self] finished in
-            guard let self else {
-                completion?()
-                return
-            }
-            self.seekInFlight = false
-            if let queued = self.queuedSeekSeconds {
-                self.queuedSeekSeconds = nil
-                let qPrecise = self.queuedSeekPrecise
-                let qCompletion = self.queuedSeekCompletion
-                self.queuedSeekPrecise = false
-                self.queuedSeekCompletion = nil
-                self.performSeek(queued, precise: qPrecise) {
+            Task { @MainActor [weak self] in
+                guard let self else {
                     completion?()
-                    qCompletion?()
+                    return
                 }
-                return
+                self.seekInFlight = false
+                if let queued = self.queuedSeekSeconds {
+                    self.queuedSeekSeconds = nil
+                    let qPrecise = self.queuedSeekPrecise
+                    let qCompletion = self.queuedSeekCompletion
+                    self.queuedSeekPrecise = false
+                    self.queuedSeekCompletion = nil
+                    self.performSeek(queued, precise: qPrecise) {
+                        completion?()
+                        qCompletion?()
+                    }
+                    return
+                }
+                if finished, self.seekSerial == serial,
+                   let queuePlayer = self.queuePlayer, queuePlayer.rate == 0,
+                   !self.pausedForWheelScrub,
+                   !self.scrollScrubActive,
+                   !self.mediaHoldScrubActive {
+                    queuePlayer.rate = self.currentRate
+                }
+                completion?()
             }
-            if finished, self.seekSerial == serial,
-               player.rate == 0,
-               !self.pausedForWheelScrub,
-               !self.scrollScrubActive,
-               !self.mediaHoldScrubActive {
-                player.rate = self.currentRate
-            }
-            completion?()
         }
     }
 

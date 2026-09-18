@@ -148,7 +148,7 @@ final class LooperLogicTests: XCTestCase {
         AssetCache.cancelAllLoads()
     }
 
-    func testAssetCacheLoadFrameRateAndHDR() {
+    @MainActor func testAssetCacheLoadFrameRateAndHDR() {
         let url = URL(fileURLWithPath: "/tmp/looper_nonexistent_\(UUID().uuidString).mp4")
         let expectationFPS = expectation(description: "loadFrameRate returns nil for non-existent file")
         AssetCache.loadFrameRate(url) { rate in
