@@ -24,6 +24,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Release builds via `scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only.
 - Packaging uses shared `Apps/.razorcore` (`patch-app-branding.sh`, `package-dmg.sh`); same DMG contract as Libra/MetaBurn.
 - `razorbuild Looper` from `Apps/` discovers `scripts/build-mac.sh`; autosync gates Xcode projects with `xcodebuild`.
+- SourceKit-LSP editors need `xcode-build-server config -project Looper.xcodeproj -scheme Looper` at the repo root, then `Swift: Restart LSP Server`. Keep machine-local `buildServer.json` ignored. Run `xcodebuild -project Looper.xcodeproj -scheme Looper -destination 'platform=macOS,arch=arm64' CODE_SIGN_IDENTITY=- test` without overriding DerivedData to retain both app and XCTest indexing settings; packaging deletes its separate `build/DerivedData` directory.
 - Quit when the last player window closes so Finder can replace `Looper.app`. Do not leave a hidden process running. No launchd agent.
 - Gatekeeper/quarantine can block Open With on ad-hoc builds or quarantined downloads — clear app quarantine on install; user may need Open Anyway for quarantined videos.
 - Often plays multiple videos at once (~6 windows) — keep multi-window performance in mind.

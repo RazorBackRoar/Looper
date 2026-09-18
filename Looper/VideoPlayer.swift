@@ -113,10 +113,14 @@ private final class PlayerLayerView: NSView {
 private final class VideoScrubBar: NSView {
     var value: Double = 0
     var maxValue: Double = 1
+    var loopInValue: Double?
+    var loopOutValue: Double?
     var onScrubStart: (() -> Void)?
     var onScrubEnd: (() -> Void)?
     var onValueChanged: ((Double) -> Void)?
     var onScroll: ((NSEvent) -> Void)?
+    var onLoopPointsChanged: ((Double, Double) -> Void)?
+    var onLoopCleared: (() -> Void)?
 
     private var dragging = false
 
@@ -155,6 +159,26 @@ private final class VideoScrubBar: NSView {
         NSBezierPath(ovalIn: knobRect.insetBy(dx: -0.5, dy: -0.5)).fill()
         NSColor.white.setFill()
         NSBezierPath(ovalIn: knobRect).fill()
+
+        if maxValue > 0, loopInValue != nil {
+            let inX = inset + trackW * CGFloat(min(1, max(0, loopInValue! / maxValue)))
+            if let outValue = loopOutValue {
+                let outX = inset + trackW * CGFloat(min(1, max(0, outValue / maxValue)))
+                let rangeRect = NSRect(x: inX, y: trackY - trackH, width: outX - inX, height: trackH * 2)
+                NSColor.systemOrange.withAlphaComponent(0.35).setFill()
+                NSBezierPath(roundedRect: rangeRect, xRadius: 4, yRadius: 4).fill()
+                drawLoopMarker(at: outX, trackY: trackY)
+            }
+            drawLoopMarker(at: inX, trackY: trackY)
+        }
+    }
+
+    private func drawLoopMarker(at x: CGFloat, trackY: CGFloat) {
+        let marker = NSRect(x: x - 2, y: trackY - 5, width: 4, height: 10)
+        NSColor.black.withAlphaComponent(0.6).setFill()
+        NSBezierPath(roundedRect: marker.insetBy(dx: -0.5, dy: -0.5), xRadius: 2, yRadius: 2).fill()
+        NSColor.systemOrange.setFill()
+        NSBezierPath(roundedRect: marker, xRadius: 2, yRadius: 2).fill()
     }
 
     /// Pixel X of the knob center — used to skip redundant redraws during playback.
@@ -166,10 +190,38 @@ private final class VideoScrubBar: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
+        if event.modifierFlags.contains(.command) {
+            handleLoopClick(with: event)
+            return
+        }
         dragging = true
         window?.invalidateCursorRects(for: self)
         onScrubStart?()
         scrubTo(event)
+    }
+
+    private func handleLoopClick(with event: NSEvent) {
+        if event.modifierFlags.contains(.option) {
+            loopInValue = nil
+            loopOutValue = nil
+            needsDisplay = true
+            onLoopCleared?()
+            return
+        }
+        let x = convert(event.locationInWindow, from: nil).x
+        let inset: CGFloat = 12
+        let trackW = max(bounds.width - inset * 2, 1)
+        let fraction = min(1, max(0, (x - inset) / trackW))
+        let clicked = Double(fraction) * maxValue
+        if let inValue = loopInValue, loopOutValue == nil, clicked != inValue {
+            loopInValue = min(inValue, clicked)
+            loopOutValue = max(inValue, clicked)
+            onLoopPointsChanged?(loopInValue!, loopOutValue!)
+        } else {
+            loopInValue = clicked
+            loopOutValue = nil
+        }
+        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -178,6 +230,7 @@ private final class VideoScrubBar: NSView {
     }
 
     override func mouseUp(with event: NSEvent) {
+        guard dragging else { return }
         dragging = false
         window?.invalidateCursorRects(for: self)
         onScrubEnd?()
@@ -289,6 +342,79 @@ private final class VolumeSlider: NSView {
         cone.close()
         NSColor.white.setFill()
         cone.fill()
+    }
+}
+
+// MARK: - Slo-Mo pill button
+
+/// Tap = toggle half speed. Glass on macOS 26+, drawn pill before that.
+private final class SlomoButton: NSView {
+    var onActivate: (() -> Void)?
+
+    private var usesGlass = false
+    private let titleLabel = PassthroughLabel(labelWithString: "Slo-Mo")
+
+    override var isOpaque: Bool { false }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        wantsLayer = true
+
+        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
+        titleLabel.textColor = .white
+        titleLabel.alignment = .center
+        titleLabel.translatesAutoresizingMaskIntoConstraints = false
+
+        if #available(macOS 26.0, *) {
+            let glass = PassthroughGlassView()
+            glass.style = .regular
+            glass.cornerRadius = 11
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            addSubview(glass, positioned: .below, relativeTo: nil)
+            usesGlass = true
+            NSLayoutConstraint.activate([
+                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
+                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
+                glass.topAnchor.constraint(equalTo: topAnchor),
+                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
+            ])
+        }
+
+        addSubview(titleLabel)
+        NSLayoutConstraint.activate([
+            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
+            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
+            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
+        ])
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    func setTitle(_ title: String) {
+        titleLabel.stringValue = title
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        guard !usesGlass else { return }
+        let pill = bounds.insetBy(dx: 0.5, dy: 0.5)
+        let path = NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2)
+        NSColor.black.withAlphaComponent(0.45).setFill()
+        path.fill()
+        NSColor.white.withAlphaComponent(0.6).setStroke()
+        path.lineWidth = 1
+        path.stroke()
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        onActivate?()
+    }
+
+    override func resetCursorRects() {
+        super.resetCursorRects()
+        addCursorRect(bounds, cursor: .pointingHand)
     }
 }
 
@@ -463,12 +589,14 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private let cascadeOrigin: NSPoint
     private var queuePlayer: AVQueuePlayer?
     private var playerLooper: AVPlayerLooper?
+    private var templateItem: AVPlayerItem?
     private var playerSurface: PlayerLayerView!
     private var clickView: VideoScrollView!
     private var scrubBar: VideoScrubBar!
     private var elapsedLabel: NSTextField!
     private var remainingLabel: NSTextField!
     private var volumeSlider: VolumeSlider!
+    private var slomoButton: SlomoButton!
     private var controlsBar: OverlayBarView!
     private var rateHUD: PassthroughLabel!
     private var currentRate: Float = 1.0
@@ -478,6 +606,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var statusObservation: NSKeyValueObservation?
     private var lastCoarseSeekAt: CFAbsoluteTime = 0
     private var seekSerial = 0
+    private var loopApplySerial = 0
     private var didReveal = false
     private var scrollScrubActive = false
     private var scrollEndWork: DispatchWorkItem?
@@ -611,6 +740,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             self?.scrubValueChanged(seconds)
         }
         scrubBar.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
+        scrubBar.onLoopPointsChanged = { [weak self] inSeconds, outSeconds in
+            self?.applyCustomLoop(inSeconds: inSeconds, outSeconds: outSeconds)
+        }
+        scrubBar.onLoopCleared = { [weak self] in self?.clearCustomLoop() }
 
         volumeSlider = VolumeSlider(frame: .zero)
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
@@ -619,10 +752,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             self?.applyVolume(Float(volume))
         }
 
+        slomoButton = SlomoButton(frame: .zero)
+        slomoButton.translatesAutoresizingMaskIntoConstraints = false
+        slomoButton.onActivate = { [weak self] in self?.toggleSlomo() }
+
         controlsBar.addSubview(elapsedLabel)
         controlsBar.addSubview(scrubBar)
         controlsBar.addSubview(remainingLabel)
         controlsBar.addSubview(volumeSlider)
+        controlsBar.addSubview(slomoButton)
 
         rateHUD = makeRateHUD()
         content.addSubview(rateHUD)
@@ -652,10 +790,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             elapsedLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
             elapsedLabel.widthAnchor.constraint(equalToConstant: 52),
 
-            volumeSlider.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
+            volumeSlider.trailingAnchor.constraint(equalTo: slomoButton.leadingAnchor, constant: -10),
             volumeSlider.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
             volumeSlider.widthAnchor.constraint(equalToConstant: 70),
             volumeSlider.heightAnchor.constraint(equalToConstant: 20),
+
+            slomoButton.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
+            slomoButton.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
+            slomoButton.widthAnchor.constraint(equalToConstant: 68),
+            slomoButton.heightAnchor.constraint(equalToConstant: 22),
 
             remainingLabel.trailingAnchor.constraint(equalTo: volumeSlider.leadingAnchor, constant: -10),
             remainingLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
@@ -848,11 +991,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if queuePlayer != nil || didAttachPlayer { return }
         didAttachPlayer = true
 
-        let templateItem = AVPlayerItem(asset: asset)
-        templateItem.preferredForwardBufferDuration = 30
-        templateItem.canUseNetworkResourcesForLiveStreamingWhilePaused = true
-        templateItem.seekingWaitsForVideoCompositionRendering = false
-        templateItem.automaticallyPreservesTimeOffsetFromLive = false
+        let item = AVPlayerItem(asset: asset)
+        item.preferredForwardBufferDuration = 30
+        item.canUseNetworkResourcesForLiveStreamingWhilePaused = true
+        item.seekingWaitsForVideoCompositionRendering = false
+        item.automaticallyPreservesTimeOffsetFromLive = false
+        templateItem = item
 
         let player = AVQueuePlayer()
         player.automaticallyWaitsToMinimizeStalling = false
@@ -863,12 +1007,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         playerSurface.player = player
         applyVolume(Float(volumeSlider.value))
 
-        playerLooper = AVPlayerLooper(player: player, templateItem: templateItem)
+        playerLooper = AVPlayerLooper(player: player, templateItem: item)
 
         applyFrameTiming()
         startPlayheadLink()
 
-        statusObservation = templateItem.observe(\.status, options: [.new]) { [weak self] item, _ in
+        statusObservation = item.observe(\.status, options: [.new]) { [weak self] item, _ in
             guard let self else { return }
             if item.status == .failed {
                 DispatchQueue.main.async {
@@ -882,6 +1026,38 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         slamOpaqueFront()
         scheduleHideControls()
         MediaKeys.shared.refreshNowPlaying()
+    }
+
+    // MARK: - Custom loop range (Cmd+click on scrub bar)
+
+    private func applyCustomLoop(inSeconds: Double, outSeconds: Double) {
+        loopApplySerial += 1
+        let serial = loopApplySerial
+        playerLooper?.disableLooping()
+        playerLooper = nil
+        let wasPlaying = queuePlayer?.rate != 0
+        seek(to: inSeconds, precise: true) { [weak self] in
+            guard let self, self.loopApplySerial == serial,
+                  let player = self.queuePlayer, let templateItem = self.templateItem
+            else { return }
+            let range = CMTimeRange(
+                start: CMTime(seconds: inSeconds, preferredTimescale: 600),
+                end: CMTime(seconds: outSeconds, preferredTimescale: 600))
+            self.playerLooper = AVPlayerLooper(player: player, templateItem: templateItem, timeRange: range)
+            // The in-flight item predates the new looper — cap its end so the out-point applies now.
+            player.currentItem?.forwardPlaybackEndTime = range.end
+            if wasPlaying, player.rate == 0 { player.rate = self.currentRate }
+        }
+    }
+
+    private func clearCustomLoop() {
+        loopApplySerial += 1
+        playerLooper?.disableLooping()
+        playerLooper = nil
+        guard let player = queuePlayer, let templateItem else { return }
+        // Release any range cap on the in-flight item so it plays to the clip end.
+        player.currentItem?.forwardPlaybackEndTime = .invalid
+        playerLooper = AVPlayerLooper(player: player, templateItem: templateItem)
     }
 
     private func applyFrameTiming() {
@@ -1016,6 +1192,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         videoFrameRate = 30
         currentRate = 1.0
         scrubBar.value = 0
+        scrubBar.loopInValue = nil
+        scrubBar.loopOutValue = nil
+        scrubBar.needsDisplay = true
+        updateSlomoLabel()
         lastKnobPixelX = -1
         updateTimeLabels(current: 0)
         AssetCache.preload(url)
@@ -1050,6 +1230,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
         rateHUDHideWork = work
         DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
+        updateSlomoLabel()
     }
 
     // MARK: - Scrub
@@ -1581,6 +1762,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         flashRate()
     }
 
+    /// Slo-Mo button — same half-speed toggle as the "1" key.
+    private func toggleSlomo() {
+        toggleHalfSpeed()
+        updateSlomoLabel()
+    }
+
+    private func updateSlomoLabel() {
+        slomoButton?.setTitle(abs(currentRate - 0.5) < 0.001 ? "Normal" : "Slo-Mo")
+    }
+
     /// L — rotate counter-clockwise (display only, file unchanged).
     private func rotateCounterClockwise() {
         displayQuarterTurns = (displayQuarterTurns + 1) % 4
@@ -1691,6 +1882,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
         playerLooper?.disableLooping()
         playerLooper = nil
+        templateItem = nil
+        loopApplySerial += 1
         queuePlayer?.pause()
         queuePlayer?.replaceCurrentItem(with: nil)
         playerSurface.player = nil
