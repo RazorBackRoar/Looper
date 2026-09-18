@@ -213,10 +213,14 @@ private final class VideoScrubBar: NSView {
         let trackW = max(bounds.width - inset * 2, 1)
         let fraction = min(1, max(0, (x - inset) / trackW))
         let clicked = Double(fraction) * maxValue
-        if let inValue = loopInValue, loopOutValue == nil, clicked != inValue {
-            loopInValue = min(inValue, clicked)
-            loopOutValue = max(inValue, clicked)
-            onLoopPointsChanged?(loopInValue!, loopOutValue!)
+        if let inValue = loopInValue, loopOutValue == nil {
+            let lo = min(inValue, clicked)
+            let hi = max(inValue, clicked)
+            // Below this span the looper would churn items faster than a frame — keep the pending point.
+            guard hi - lo >= 0.1 else { return }
+            loopInValue = lo
+            loopOutValue = hi
+            onLoopPointsChanged?(lo, hi)
         } else {
             loopInValue = clicked
             loopOutValue = nil
@@ -1008,6 +1012,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         applyVolume(Float(volumeSlider.value))
 
         playerLooper = AVPlayerLooper(player: player, templateItem: item)
+        // A fresh looper means full-clip looping — drop any stale markers set before attach.
+        scrubBar.loopInValue = nil
+        scrubBar.loopOutValue = nil
 
         applyFrameTiming()
         startPlayheadLink()
