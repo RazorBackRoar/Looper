@@ -106,7 +106,7 @@ private final class PlayerLayerView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        playerLayer.videoGravity = .resizeAspect
+        playerLayer.videoGravity = .resizeAspectFill
         playerLayer.backgroundColor = NSColor.black.cgColor
         applyPlayerEDR(playerLayer, hdr: false)
     }
@@ -572,6 +572,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var infoButton: InfoButton!
     private var infoColumn: VideoInfoView!
     private var infoSeparator: NSView!
+    /// Hidden views still hold Auto Layout space — collapse these to 0 when closed.
+    private var infoWidthConstraint: NSLayoutConstraint!
+    private var separatorWidthConstraint: NSLayoutConstraint!
     private var metadataSession: VideoMetadataSession!
     private var currentRate: Float = 1.0
     private var currentVolume: Float = 1.0
@@ -768,11 +771,14 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         metadataSession.onChange = { [weak self] state in
             self?.infoColumn.present(state)
         }
+        metadataSession.setSource(videoURL)
 
         let footerH = PlayerWindowLayout.footerHeight
         let capsuleH = PlayerWindowLayout.capsuleHeight
         let capsuleInsetX = PlayerWindowLayout.capsuleHorizontalInset
         let circle = PlayerWindowLayout.circleDiameter
+        separatorWidthConstraint = infoSeparator.widthAnchor.constraint(equalToConstant: 0)
+        infoWidthConstraint = infoColumn.widthAnchor.constraint(equalToConstant: 0)
         NSLayoutConstraint.activate([
             playerColumn.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             playerColumn.topAnchor.constraint(equalTo: content.topAnchor),
@@ -825,12 +831,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             infoSeparator.topAnchor.constraint(equalTo: content.topAnchor),
             infoSeparator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             infoSeparator.trailingAnchor.constraint(equalTo: infoColumn.leadingAnchor),
-            infoSeparator.widthAnchor.constraint(equalToConstant: PlayerWindowLayout.separatorWidth),
+            separatorWidthConstraint,
 
             infoColumn.topAnchor.constraint(equalTo: content.topAnchor),
             infoColumn.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             infoColumn.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            infoColumn.widthAnchor.constraint(equalToConstant: PlayerWindowLayout.inspectorWidth),
+            infoWidthConstraint,
         ])
     }
 
@@ -840,7 +846,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         let radius = PlayerWindowLayout.capsuleHeight / 2
         if #available(macOS 26.0, *) {
             let glass = NSGlassEffectView()
-            glass.style = .regular
+            glass.style = .clear
             glass.cornerRadius = radius
             glass.contentView = row
             glass.translatesAutoresizingMaskIntoConstraints = false
@@ -1115,6 +1121,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if open {
             preInfoFrame = window.frame
             infoGeometryDirty = false
+            separatorWidthConstraint.constant = PlayerWindowLayout.separatorWidth
+            infoWidthConstraint.constant = PlayerWindowLayout.inspectorWidth
             infoSeparator.isHidden = false
             infoColumn.isHidden = false
             infoColumn.setFileName(videoURL.lastPathComponent)
@@ -1145,6 +1153,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             isUpdatingLayout = false
         } else {
             metadataSession.hide()
+            separatorWidthConstraint.constant = 0
+            infoWidthConstraint.constant = 0
             updateMinSize()
             var frame = window.frame
             if !infoGeometryDirty, let saved = preInfoFrame {

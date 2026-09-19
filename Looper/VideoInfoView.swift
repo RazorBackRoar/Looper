@@ -114,9 +114,27 @@ final class VideoInfoView: NSVisualEffectView {
         }
     }
 
+    /// Fixed display schema — every expected row is always rendered, "N/A" when
+    /// the file doesn't carry that tag. (Section, label) pairs match the labels
+    /// `VideoMetadataReader` emits; multi-track prefixes ("Video 1 Resolution")
+    /// are matched by suffix.
+    private static let schema: [(section: String, labels: [String])] = [
+        ("File", ["Name", "Format", "Size", "File created", "File modified", "Path"]),
+        ("Recorded", ["Recorded"]),
+        ("Video", ["Duration", "Resolution", "Encoded", "Frame rate", "Codec", "Bit rate", "Color"]),
+        ("Audio", ["Codec", "Sample rate", "Channels", "Language", "Bit rate"]),
+        ("Camera", ["Make", "Model", "Lens", "Focal length", "Aperture", "ISO", "Software"]),
+        ("Location", ["GPS", "Place"]),
+    ]
+
     private func render(_ snapshot: VideoMetadataSnapshot) {
-        for section in snapshot.sections {
-            addSection(title: section.title, fields: section.fields)
+        let lookup = makeLookup(snapshot)
+        for entry in Self.schema {
+            let fields = entry.labels.map { label in
+                VideoMetadataField(key: label, label: label,
+                                   value: lookup(entry.section, label) ?? "N/A", source: "")
+            }
+            addSection(title: entry.section, fields: fields)
         }
         if !snapshot.unavailableSections.isEmpty {
             stackView.addArrangedSubview(
@@ -124,6 +142,25 @@ final class VideoInfoView: NSVisualEffectView {
         }
         if !snapshot.additionalFields.isEmpty {
             addDetailsDisclosure(fields: snapshot.additionalFields)
+        }
+    }
+
+    private func makeLookup(
+        _ snapshot: VideoMetadataSnapshot
+    ) -> (_ section: String, _ label: String) -> String? {
+        var table: [String: [String: String]] = [:]
+        for section in snapshot.sections {
+            var map = table[section.title] ?? [:]
+            for field in section.fields where map[field.label] == nil {
+                map[field.label] = field.value
+            }
+            table[section.title] = map
+        }
+        return { section, label in
+            guard let map = table[section] else { return nil }
+            if let exact = map[label] { return exact }
+            for (key, value) in map where key.hasSuffix(" " + label) { return value }
+            return nil
         }
     }
 
