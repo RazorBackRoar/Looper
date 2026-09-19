@@ -1067,6 +1067,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         playerLooper = AVPlayerLooper(player: player, templateItem: templateItem)
     }
 
+    /// Dragging the playhead outside an active loop range breaks the loop.
+    private func clearCustomLoopIfOutside(_ seconds: Double) {
+        guard let lo = scrubBar.loopInValue, let hi = scrubBar.loopOutValue,
+              seconds < lo || seconds > hi else { return }
+        scrubBar.loopInValue = nil
+        scrubBar.loopOutValue = nil
+        scrubBar.needsDisplay = true
+        clearCustomLoop()
+    }
+
     private func applyFrameTiming() {
         let hz = Float(displayRefreshHz)
         playheadLink?.preferredFrameRateRange = CAFrameRateRange(minimum: 24, maximum: hz, preferred: hz)
@@ -1378,6 +1388,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
     private func scrubValueChanged(_ seconds: Double) {
         guard isScrubbing, !scrollScrubActive else { return }
+        clearCustomLoopIfOutside(seconds)
         updateTimeLabels(current: seconds)
 
         let now = CFAbsoluteTimeGetCurrent()
@@ -1388,6 +1399,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
     private func scrubEnded() {
         let seconds = scrubBar.value
+        clearCustomLoopIfOutside(seconds)
         seek(to: seconds, precise: true) { [weak self] in
             guard let self else { return }
             self.isScrubbing = false
