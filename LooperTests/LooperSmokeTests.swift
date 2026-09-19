@@ -357,15 +357,15 @@ final class VideoMetadataSessionTests: XCTestCase {
         var calls: [URL] { lock.withLock { _calls } }
 
         func loader(_ url: URL) async throws -> VideoMetadataSnapshot {
-            let woken = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
-                _calls.append(url)
-                let w = waiters
-                waiters.removeAll()
-                return w
-            }
-            woken.forEach { $0.resume() }
-            return try await withCheckedThrowingContinuation { cont in
-                lock.withLock { pending.append(cont) }
+            try await withCheckedThrowingContinuation { cont in
+                let woken = lock.withLock { () -> [CheckedContinuation<Void, Never>] in
+                    pending.append(cont)
+                    _calls.append(url)
+                    let w = waiters
+                    waiters.removeAll()
+                    return w
+                }
+                woken.forEach { $0.resume() }
             }
         }
 
@@ -658,21 +658,12 @@ final class PlayerTimelineMathTests: XCTestCase {
 
 // MARK: - Scrub-bar double-click sequences (real NSEvents)
 
+@MainActor
 final class ScrubBarInteractionTests: XCTestCase {
 
-    private var hostWindow: NSWindow!
-
-    override func setUp() {
-        super.setUp()
-        hostWindow = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 600, height: 120),
-            styleMask: .borderless, backing: .buffered, defer: false)
-    }
-
-    override func tearDown() {
-        hostWindow = nil
-        super.tearDown()
-    }
+    private lazy var hostWindow = NSWindow(
+        contentRect: NSRect(x: 0, y: 0, width: 600, height: 120),
+        styleMask: .borderless, backing: .buffered, defer: false)
 
     private func makeBar() -> VideoScrubBar {
         let bar = VideoScrubBar(frame: NSRect(x: 0, y: 0, width: 500, height: 28))
@@ -802,6 +793,7 @@ final class ScrubBarInteractionTests: XCTestCase {
 
 // MARK: - Inspector view
 
+@MainActor
 final class VideoInfoViewTests: XCTestCase {
 
     private func snapshot(location: VideoLocation? = nil) -> VideoMetadataSnapshot {

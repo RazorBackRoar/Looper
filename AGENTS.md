@@ -11,7 +11,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Keyboard shortcuts apply only while a Looper video window is focused: `M` mute/unmute, `1` toggle half-speed, `L` rotate. They must do nothing when no Looper video is playing.
 - App icon is orange and white (high-resolution `.icns` / 1024×1024 source).
 - Icon must sit at the same visual weight as the sibling apps: an 824×824 squircle centred in a 1024 canvas, plus a soft black drop shadow (blur 5, offset +10, peak alpha 80) — identical to MetaBurn / Libra. Keep `IconSource.png`'s own colours; do not re-grade the chrome or orange.
-- Video should fill the window (no letterbox black bars); scrub controls should overlay the video QuickTime-style (not a separate pane under the video).
+- Video should fill the window (no letterbox black bars). The timeline sits in a rounded glass capsule in a fixed footer directly beneath the video — never overlaying the picture — with only two circular controls (speed `1`/`½`, Info). Green loop range/marks. No on-screen volume slider (keyboard/media-key volume still works). Speed changes are always silent — no HUD over the video. Info opens a read-only metadata column on the right (GPS shown only as `GPS: Yes`/`GPS: No`; no map).
 - Scroll wheel: up = seek forward; down = rewind.
 - Window must stay resizable — player/poster views must not lock window size.
 - After every Looper code change, run `./scripts/build-mac.sh`. Output: `build/Release/Looper.dmg` only — never leave a `Looper.app` in the repo folder. Open that DMG yourself to install; drag into `/Applications` manually.
