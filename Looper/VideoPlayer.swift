@@ -11,25 +11,87 @@ private func applyPlayerEDR(_ layer: CALayer, hdr: Bool) {
     }
 }
 
-@available(macOS 26.0, *)
-private final class PassthroughGlassView: NSGlassEffectView {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
+// MARK: - Window geometry (pure — testable without a playing window)
+
+/// The window is a video column (picture + footer) plus an optional right-hand
+/// info column. The video region always keeps the clip's aspect; UI chrome is
+/// accounted for separately instead of constraining the whole content area.
+enum PlayerWindowLayout {
+    static let footerHeight: CGFloat = 52
+    static let capsuleHeight: CGFloat = 40
+    static let capsuleHorizontalInset: CGFloat = 8
+    static let circleDiameter: CGFloat = 28
+    static let inspectorWidth: CGFloat = 300
+    static let separatorWidth: CGFloat = 1
+    static let minVideoWidth: CGFloat = 320
+    static let minVideoHeight: CGFloat = 180
+
+    static var inspectorAllocation: CGFloat { inspectorWidth + separatorWidth }
+
+    /// Largest video size (clamped to minimums, preserving source aspect) that
+    /// fits inside the given budget.
+    static func fitVideoSize(source: CGSize, maxWidth: CGFloat, maxHeight: CGFloat) -> CGSize {
+        guard source.width > 0, source.height > 0, maxWidth > 0, maxHeight > 0 else {
+            return CGSize(width: minVideoWidth, height: minVideoHeight)
+        }
+        let scale = min(1.0, min(maxWidth / source.width, maxHeight / source.height))
+        var w = floor(source.width * scale)
+        var h = floor(source.height * scale)
+        if w < minVideoWidth { let s = minVideoWidth / w; w = minVideoWidth; h = floor(h * s) }
+        if h < minVideoHeight { let s = minVideoHeight / h; h = minVideoHeight; w = floor(w * s) }
+        return CGSize(width: max(1, w), height: max(1, h))
+    }
+
+    static func contentSize(videoSize: CGSize, inspectorOpen: Bool) -> CGSize {
+        CGSize(
+            width: videoSize.width + (inspectorOpen ? inspectorAllocation : 0),
+            height: videoSize.height + footerHeight)
+    }
+
+    /// Resize: keep the video region at `videoAspect`, whichever dimension the
+    /// user dragged harder drives. Returns the corrected CONTENT size.
+    static func aspectCorrectedContentSize(
+        proposedContent: CGSize,
+        videoAspect: CGFloat,
+        lastVideoSize: CGSize,
+        inspectorOpen: Bool,
+        maxVideoSize: CGSize
+    ) -> CGSize {
+        guard videoAspect > 0, videoAspect.isFinite else { return proposedContent }
+        let alloc = inspectorOpen ? inspectorAllocation : 0
+        var vw = proposedContent.width - alloc
+        var vh = proposedContent.height - footerHeight
+
+        let dw = abs(vw - lastVideoSize.width) / max(lastVideoSize.width, 1)
+        let dh = abs(vh - lastVideoSize.height) / max(lastVideoSize.height, 1)
+        if dw >= dh {
+            vh = vw / videoAspect
+        } else {
+            vw = vh * videoAspect
+        }
+        if vw > maxVideoSize.width { vw = maxVideoSize.width; vh = vw / videoAspect }
+        if vh > maxVideoSize.height { vh = maxVideoSize.height; vw = vh * videoAspect }
+        if vw < minVideoWidth { vw = minVideoWidth; vh = vw / videoAspect }
+        if vh < minVideoHeight { vh = minVideoHeight; vw = vh * videoAspect }
+        vw = max(1, floor(vw))
+        vh = max(1, floor(vh))
+        return CGSize(width: vw + alloc, height: vh + footerHeight)
+    }
 }
 
-private func drawHighContrastTrack(in track: NSRect, fraction: CGFloat) {
-    let groove = NSBezierPath(roundedRect: track, xRadius: 2, yRadius: 2)
-    NSColor.black.withAlphaComponent(0.78).setFill()
-    groove.fill()
-    NSColor.white.setStroke()
-    groove.lineWidth = 1.25
-    groove.stroke()
+// MARK: - Loop wrap math (pure)
 
-    let clamped = min(1, max(0, fraction))
-    if clamped > 0 {
-        var progress = track
-        progress.size.width = max(track.height, track.width * CGFloat(clamped))
-        NSColor.white.setFill()
-        NSBezierPath(roundedRect: progress, xRadius: 2, yRadius: 2).fill()
+enum PlayerTimelineMath {
+    /// Did the playhead wrap from the end of [start, end] back to its start?
+    /// Works for full-clip loops and custom in/out ranges alike.
+    static func isLoopWrap(previous: Double, current: Double, start: Double, end: Double) -> Bool {
+        guard previous.isFinite, current.isFinite, start.isFinite, end.isFinite else { return false }
+        let span = end - start
+        guard span > 0 else { return false }
+        let headRoom = min(0.5, span * 0.3)
+        let nearEnd = previous >= end - span * 0.3
+        let nearStart = current <= start + headRoom && current >= start - headRoom
+        return nearEnd && nearStart
     }
 }
 
@@ -44,7 +106,7 @@ private final class PlayerLayerView: NSView {
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
-        playerLayer.videoGravity = .resizeAspectFill
+        playerLayer.videoGravity = .resizeAspect
         playerLayer.backgroundColor = NSColor.black.cgColor
         applyPlayerEDR(playerLayer, hdr: false)
     }
@@ -108,9 +170,9 @@ private final class PlayerLayerView: NSView {
     }
 }
 
-// MARK: - Minimal transparent scrub (no NSSlider black chrome)
+// MARK: - Timeline rail inside the glass capsule
 
-private final class VideoScrubBar: NSView {
+final class VideoScrubBar: NSView {
     var value: Double = 0
     var maxValue: Double = 1
     var loopInValue: Double?
@@ -119,9 +181,15 @@ private final class VideoScrubBar: NSView {
     var onScrubEnd: (() -> Void)?
     var onValueChanged: ((Double) -> Void)?
     var onScroll: ((NSEvent) -> Void)?
-    var onDoubleClick: ((Double) -> Void)?
+    /// (clickedSeconds, clearsExistingLoop) — the second arg is true when a
+    /// complete pair already existed at the START of this click sequence.
+    var onDoubleClick: ((Double, Bool) -> Void)?
 
     private var dragging = false
+    /// Snapshot taken on the first mouseDown of a click sequence: the first
+    /// click may itself clear the pair (scrub-outside), which would otherwise
+    /// erase the information a third double-click needs to mean "clear".
+    private var clickSequenceHadCompletePair = false
 
     override var isOpaque: Bool { false }
 
@@ -139,63 +207,93 @@ private final class VideoScrubBar: NSView {
         addCursorRect(bounds, cursor: dragging ? .closedHand : .pointingHand)
     }
 
+    // MARK: Shared rail geometry — draw, hit, and knob math MUST agree.
+
+    private static let railInset: CGFloat = 10
+    private static let railHeight: CGFloat = 6
+    private static let thumbSize = NSSize(width: 14, height: 12)
+
+    private var railRect: NSRect {
+        let w = max(bounds.width - Self.railInset * 2, 1)
+        return NSRect(x: Self.railInset, y: bounds.midY - Self.railHeight / 2,
+                      width: w, height: Self.railHeight)
+    }
+
+    private func timeFraction(atViewX x: CGFloat) -> Double {
+        let rail = railRect
+        return Double(min(1, max(0, (x - rail.minX) / rail.width)))
+    }
+
+    /// Pixel X of the knob center — used to skip redundant redraws during playback.
+    var knobPixelX: CGFloat {
+        let rail = railRect
+        let fraction = maxValue > 0 ? min(1, max(0, value / maxValue)) : 0
+        return round(rail.minX + rail.width * CGFloat(fraction))
+    }
+
     override func draw(_ dirtyRect: NSRect) {
-        let inset: CGFloat = 12
-        let trackW = max(bounds.width - inset * 2, 1)
+        let rail = railRect
         let trackY = bounds.midY
         let fraction = maxValue > 0 ? min(1, max(0, value / maxValue)) : 0
-        let knobX = round(inset + trackW * fraction)
+        let knobX = round(rail.minX + rail.width * CGFloat(fraction))
 
-        let trackH: CGFloat = 4
-        drawHighContrastTrack(
-            in: NSRect(x: inset, y: trackY - trackH / 2, width: trackW, height: trackH),
-            fraction: CGFloat(fraction)
-        )
+        // Unplayed rail.
+        NSColor.labelColor.withAlphaComponent(0.25).setFill()
+        NSBezierPath(roundedRect: rail, xRadius: rail.height / 2, yRadius: rail.height / 2).fill()
 
-        let diameter: CGFloat = 10
-        let knobRect = NSRect(x: knobX - diameter / 2, y: trackY - diameter / 2, width: diameter, height: diameter)
-        NSColor.black.withAlphaComponent(0.45).setFill()
-        NSBezierPath(ovalIn: knobRect.insetBy(dx: -0.5, dy: -0.5)).fill()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: knobRect).fill()
+        // Played progress.
+        if fraction > 0 {
+            var progress = rail
+            progress.size.width = max(rail.height, rail.width * CGFloat(fraction))
+            NSColor.labelColor.withAlphaComponent(0.55).setFill()
+            NSBezierPath(roundedRect: progress, xRadius: rail.height / 2, yRadius: rail.height / 2).fill()
+        }
 
-        if maxValue > 0, loopInValue != nil {
-            let inX = inset + trackW * CGFloat(min(1, max(0, loopInValue! / maxValue)))
+        // Green loop range + markers (under the thumb so it stays legible).
+        if maxValue > 0, let inValue = loopInValue {
+            let inX = rail.minX + rail.width * CGFloat(min(1, max(0, inValue / maxValue)))
             if let outValue = loopOutValue {
-                let outX = inset + trackW * CGFloat(min(1, max(0, outValue / maxValue)))
-                let rangeRect = NSRect(x: inX, y: trackY - trackH, width: outX - inX, height: trackH * 2)
-                NSColor.systemGreen.withAlphaComponent(0.35).setFill()
-                NSBezierPath(roundedRect: rangeRect, xRadius: 4, yRadius: 4).fill()
+                let outX = rail.minX + rail.width * CGFloat(min(1, max(0, outValue / maxValue)))
+                let rangeRect = NSRect(x: inX, y: trackY - 7, width: outX - inX, height: 14)
+                NSColor.systemGreen.withAlphaComponent(0.45).setFill()
+                NSBezierPath(roundedRect: rangeRect, xRadius: 5, yRadius: 5).fill()
                 drawLoopMarker(at: outX, trackY: trackY)
             }
             drawLoopMarker(at: inX, trackY: trackY)
         }
+
+        // Thumb last — QuickTime-style rounded pill.
+        let thumbRect = NSRect(
+            x: knobX - Self.thumbSize.width / 2,
+            y: trackY - Self.thumbSize.height / 2,
+            width: Self.thumbSize.width, height: Self.thumbSize.height)
+        NSColor.black.withAlphaComponent(0.35).setFill()
+        NSBezierPath(roundedRect: thumbRect.offsetBy(dx: 0, dy: -0.5),
+                     xRadius: thumbRect.height / 2, yRadius: thumbRect.height / 2).fill()
+        NSColor.labelColor.setFill()
+        NSBezierPath(roundedRect: thumbRect,
+                     xRadius: thumbRect.height / 2, yRadius: thumbRect.height / 2).fill()
     }
 
     private func drawLoopMarker(at x: CGFloat, trackY: CGFloat) {
-        let marker = NSRect(x: x - 2, y: trackY - 5, width: 4, height: 10)
+        let marker = NSRect(x: x - 2, y: trackY - 7, width: 4, height: 14)
         NSColor.black.withAlphaComponent(0.6).setFill()
         NSBezierPath(roundedRect: marker.insetBy(dx: -0.5, dy: -0.5), xRadius: 2, yRadius: 2).fill()
         NSColor.systemGreen.setFill()
         NSBezierPath(roundedRect: marker, xRadius: 2, yRadius: 2).fill()
     }
 
-    /// Pixel X of the knob center — used to skip redundant redraws during playback.
-    var knobPixelX: CGFloat {
-        let inset: CGFloat = 12
-        let trackW = max(bounds.width - inset * 2, 1)
-        let fraction = maxValue > 0 ? min(1, max(0, value / maxValue)) : 0
-        return round(inset + trackW * fraction)
-    }
-
     override func mouseDown(with event: NSEvent) {
-        if event.clickCount == 2 {
+        if event.clickCount == 1 {
+            clickSequenceHadCompletePair = loopInValue != nil && loopOutValue != nil
+        } else if event.clickCount == 2 {
             let x = convert(event.locationInWindow, from: nil).x
-            let inset: CGFloat = 12
-            let trackW = max(bounds.width - inset * 2, 1)
-            let fraction = min(1, max(0, (x - inset) / trackW))
-            onDoubleClick?(Double(fraction) * maxValue)
+            let hadPair = clickSequenceHadCompletePair || (loopInValue != nil && loopOutValue != nil)
+            onDoubleClick?(timeFraction(atViewX: x) * maxValue, hadPair)
             return
+        } else {
+            // clickCount >= 3: not a loop command — let it scrub normally.
+            clickSequenceHadCompletePair = false
         }
         dragging = true
         window?.invalidateCursorRects(for: self)
@@ -221,179 +319,161 @@ private final class VideoScrubBar: NSView {
 
     private func scrubTo(_ event: NSEvent) {
         let x = convert(event.locationInWindow, from: nil).x
-        let inset: CGFloat = 12
-        let trackW = max(bounds.width - inset * 2, 1)
-        let fraction = min(1, max(0, (x - inset) / trackW))
-        value = fraction * maxValue
+        value = timeFraction(atViewX: x) * maxValue
         onValueChanged?(value)
         needsDisplay = true
     }
 }
 
-// MARK: - Minimal transparent volume slider
+// MARK: - Circular capsule controls (speed / info) — drawn, no NSButton.
 
-private final class VolumeSlider: NSView {
-    var value: Double = 1.0 {
-        didSet { needsDisplay = true }
+/// Shared base for the two bottom-bar circles: hover/press feedback,
+/// pointing-hand cursor, VoiceOver button semantics, space/return activation.
+class CircleControl: NSView {
+    var onActivate: (() -> Void)?
+    var accessibilityName: String = "" {
+        didSet { setAccessibilityLabel(accessibilityName) }
     }
-    var onValueChanged: ((Double) -> Void)?
 
-    private var dragging = false
+    private(set) var hovered = false
+    private(set) var pressed = false
 
     override var isOpaque: Bool { false }
+    override var acceptsFirstResponder: Bool { true }
 
     override init(frame frameRect: NSRect) {
         super.init(frame: frameRect)
         wantsLayer = true
+        setAccessibilityElement(true)
+        setAccessibilityRole(.button)
     }
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        let inset: CGFloat = 6
-        let iconW: CGFloat = 12
-        let iconGap: CGFloat = 6
-        let trackInsetLeft = inset + iconW + iconGap
-        let trackW = max(bounds.width - trackInsetLeft - inset, 1)
-        let trackY = bounds.midY
-        let trackH: CGFloat = 4
-        let fraction = min(1, max(0, value))
-
-        drawSpeaker(in: NSRect(x: inset, y: trackY - iconW / 2, width: iconW, height: iconW))
-
-        drawHighContrastTrack(
-            in: NSRect(x: trackInsetLeft, y: trackY - trackH / 2, width: trackW, height: trackH),
-            fraction: CGFloat(fraction)
-        )
-
-        let knobX = round(trackInsetLeft + trackW * fraction)
-        NSColor.black.withAlphaComponent(0.55).setFill()
-        NSBezierPath(ovalIn: NSRect(x: knobX - 5, y: trackY - 5, width: 10, height: 10)).fill()
-        NSColor.white.setFill()
-        NSBezierPath(ovalIn: NSRect(x: knobX - 4, y: trackY - 4, width: 8, height: 8)).fill()
+    override func updateTrackingAreas() {
+        super.updateTrackingAreas()
+        for area in trackingAreas { removeTrackingArea(area) }
+        addTrackingArea(NSTrackingArea(
+            rect: bounds,
+            options: [.mouseEnteredAndExited, .activeAlways, .inVisibleRect],
+            owner: self, userInfo: nil))
     }
+
+    override func mouseEntered(with event: NSEvent) { hovered = true; needsDisplay = true }
+    override func mouseExited(with event: NSEvent) { hovered = false; pressed = false; needsDisplay = true }
 
     override func mouseDown(with event: NSEvent) {
-        dragging = true
-        setVolume(for: event)
-    }
-
-    override func mouseDragged(with event: NSEvent) {
-        guard dragging else { return }
-        setVolume(for: event)
+        pressed = true
+        needsDisplay = true
     }
 
     override func mouseUp(with event: NSEvent) {
-        dragging = false
-    }
-
-    private func setVolume(for event: NSEvent) {
-        let x = convert(event.locationInWindow, from: nil).x
-        let inset: CGFloat = 6
-        let iconW: CGFloat = 12
-        let iconGap: CGFloat = 6
-        let trackInsetLeft = inset + iconW + iconGap
-        let trackW = max(bounds.width - trackInsetLeft - inset, 1)
-        let fraction = min(1, max(0, (x - trackInsetLeft) / trackW))
-        value = fraction
-        onValueChanged?(value)
-    }
-
-    private func drawSpeaker(in rect: NSRect) {
-        let bodyW: CGFloat = 5
-        let bodyH: CGFloat = 6
-        let bodyRect = NSRect(
-            x: rect.minX,
-            y: rect.midY - bodyH / 2,
-            width: bodyW,
-            height: bodyH
-        )
-        NSColor.white.setFill()
-        NSBezierPath(roundedRect: bodyRect, xRadius: 1, yRadius: 1).fill()
-
-        let cone = NSBezierPath()
-        cone.move(to: NSPoint(x: bodyRect.maxX, y: bodyRect.minY))
-        cone.line(to: NSPoint(x: rect.maxX, y: rect.minY))
-        cone.line(to: NSPoint(x: rect.maxX, y: rect.maxY))
-        cone.line(to: NSPoint(x: bodyRect.maxX, y: bodyRect.maxY))
-        cone.close()
-        NSColor.white.setFill()
-        cone.fill()
-    }
-}
-
-// MARK: - Slo-Mo pill button
-
-/// Tap = toggle half speed. Glass on macOS 26+, drawn pill before that.
-private final class SlomoButton: NSView {
-    var onActivate: (() -> Void)?
-
-    private var usesGlass = false
-    private let titleLabel = PassthroughLabel(labelWithString: "Slo-Mo")
-
-    override var isOpaque: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-
-        titleLabel.font = NSFont.systemFont(ofSize: 12, weight: .semibold)
-        titleLabel.textColor = .white
-        titleLabel.alignment = .center
-        titleLabel.translatesAutoresizingMaskIntoConstraints = false
-
-        if #available(macOS 26.0, *) {
-            let glass = PassthroughGlassView()
-            glass.style = .regular
-            glass.cornerRadius = 11
-            glass.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(glass, positioned: .below, relativeTo: nil)
-            usesGlass = true
-            NSLayoutConstraint.activate([
-                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-                glass.topAnchor.constraint(equalTo: topAnchor),
-                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
-        }
-
-        addSubview(titleLabel)
-        NSLayoutConstraint.activate([
-            titleLabel.leadingAnchor.constraint(equalTo: leadingAnchor),
-            titleLabel.trailingAnchor.constraint(equalTo: trailingAnchor),
-            titleLabel.centerYAnchor.constraint(equalTo: centerYAnchor),
-        ])
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    func setTitle(_ title: String) {
-        titleLabel.stringValue = title
+        let inside = bounds.contains(convert(event.locationInWindow, from: nil))
+        pressed = false
         needsDisplay = true
+        if inside {
+            onActivate?()
+            window?.makeFirstResponder(nil) // keep arrow-scrub working after a click
+        }
     }
 
-    override func draw(_ dirtyRect: NSRect) {
-        guard !usesGlass else { return }
-        let pill = bounds.insetBy(dx: 0.5, dy: 0.5)
-        let path = NSBezierPath(roundedRect: pill, xRadius: pill.height / 2, yRadius: pill.height / 2)
-        NSColor.black.withAlphaComponent(0.45).setFill()
-        path.fill()
-        NSColor.white.withAlphaComponent(0.6).setStroke()
-        path.lineWidth = 1
-        path.stroke()
+    override func keyDown(with event: NSEvent) {
+        if event.keyCode == 49 || event.keyCode == 36 || event.keyCode == 76 {
+            onActivate?()
+        } else {
+            super.keyDown(with: event)
+        }
     }
 
-    override func mouseDown(with event: NSEvent) {
+    override func accessibilityPerformPress() -> Bool {
         onActivate?()
+        return true
     }
 
     override func resetCursorRects() {
         super.resetCursorRects()
         addCursorRect(bounds, cursor: .pointingHand)
+    }
+
+    /// Fill alpha for the circle backing, driven by interaction state.
+    var backingAlpha: CGFloat {
+        if pressed { return 0.45 }
+        return hovered ? 0.30 : 0.18
+    }
+
+    func drawCircleBacking(in rect: NSRect) {
+        NSColor.labelColor.withAlphaComponent(backingAlpha).setFill()
+        NSBezierPath(ovalIn: rect).fill()
+        NSColor.labelColor.withAlphaComponent(0.35).setStroke()
+        let ring = NSBezierPath(ovalIn: rect.insetBy(dx: 0.5, dy: 0.5))
+        ring.lineWidth = 1
+        ring.stroke()
+    }
+}
+
+/// Speed circle — displays the current rate: `1` normal, `½` half.
+final class SlomoButton: CircleControl {
+    private var title = "1"
+
+    func setTitle(_ newTitle: String) {
+        title = newTitle
+        setAccessibilityTitle(newTitle)
+        needsDisplay = true
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: 1, dy: 1)
+        drawCircleBacking(in: rect)
+        let attrs: [NSAttributedString.Key: Any] = [
+            .font: NSFont.systemFont(ofSize: 13, weight: .semibold),
+            .foregroundColor: NSColor.labelColor,
+        ]
+        let size = title.size(withAttributes: attrs)
+        let point = NSPoint(x: bounds.midX - size.width / 2, y: bounds.midY - size.height / 2)
+        title.draw(at: point, withAttributes: attrs)
+    }
+}
+
+/// Info circle — system info glyph; `isSelected` reflects the open column.
+final class InfoButton: CircleControl {
+    var isSelected = false {
+        didSet {
+            setAccessibilityValue(isSelected ? "open" : "closed")
+            needsDisplay = true
+        }
+    }
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        if let glyph = NSImage(systemSymbolName: "info.circle", accessibilityDescription: "Info") {
+            let imageView = NSImageView(image: glyph)
+            imageView.contentTintColor = .labelColor
+            imageView.imageScaling = .scaleProportionallyDown
+            imageView.translatesAutoresizingMaskIntoConstraints = false
+            imageView.setAccessibilityElement(false)
+            addSubview(imageView)
+            NSLayoutConstraint.activate([
+                imageView.centerXAnchor.constraint(equalTo: centerXAnchor),
+                imageView.centerYAnchor.constraint(equalTo: centerYAnchor),
+                imageView.widthAnchor.constraint(equalToConstant: 16),
+                imageView.heightAnchor.constraint(equalToConstant: 16),
+            ])
+        }
+    }
+
+    required init?(coder: NSCoder) {
+        fatalError("init(coder:) has not been implemented")
+    }
+
+    override func draw(_ dirtyRect: NSRect) {
+        let rect = bounds.insetBy(dx: 1, dy: 1)
+        drawCircleBacking(in: rect)
+        if isSelected {
+            NSColor.labelColor.withAlphaComponent(0.35).setFill()
+            NSBezierPath(ovalIn: rect.insetBy(dx: 2, dy: 2)).fill()
+        }
     }
 }
 
@@ -472,10 +552,6 @@ private final class FileDropView: NSView {
     }
 }
 
-private final class PassthroughLabel: NSTextField {
-    override func hitTest(_ point: NSPoint) -> NSView? { nil }
-}
-
 // MARK: - Player window
 
 /// Maxed local player: instant open, aggressive scrub, gapless loop. Never minimizes to Dock.
@@ -485,16 +561,20 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var queuePlayer: AVQueuePlayer?
     private var playerLooper: AVPlayerLooper?
     private var templateItem: AVPlayerItem?
+    private var playerColumn: NSView!
     private var playerSurface: PlayerLayerView!
     private var clickView: VideoScrollView!
+    private var footer: NSView!
     private var scrubBar: VideoScrubBar!
     private var elapsedLabel: NSTextField!
     private var remainingLabel: NSTextField!
-    private var volumeSlider: VolumeSlider!
     private var slomoButton: SlomoButton!
-    private var controlsBar: NSView!
-    private var rateHUD: PassthroughLabel!
+    private var infoButton: InfoButton!
+    private var infoColumn: VideoInfoView!
+    private var infoSeparator: NSView!
+    private var metadataSession: VideoMetadataSession!
     private var currentRate: Float = 1.0
+    private var currentVolume: Float = 1.0
     private var durationSeconds: Double = 0
     private var isScrubbing = false
     private var keyMonitor: Any?
@@ -510,12 +590,15 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var lastScrollSeekAt: CFAbsoluteTime = 0
     private var lastKnobPixelX: CGFloat = -1
     private var videoPixelSize: CGSize?
+    private var lastVideoSize: CGSize = .zero
     private var videoFrameRate: Float = 30
     private var displayQuarterTurns = 0
     private var didResolveFrameRate = false
     private var preMuteVolume: Float = 1.0
-    private var rateHUDHideWork: DispatchWorkItem?
-    private static let controlsBarHeight: CGFloat = 34
+    private var infoOpen = false
+    private var preInfoFrame: NSRect?
+    private var infoGeometryDirty = false
+    private var isUpdatingLayout = false
     /// AVPlayer cannot usefully absorb >30 seeks/s — 120Hz seeks are what made the picture jump.
     private static let maxSeekHz: Double = 30
     private var playheadLink: CADisplayLink?
@@ -553,7 +636,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         window.isExcludedFromWindowsMenu = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.tabbingMode = .disallowed
-        window.minSize = NSSize(width: 320, height: 200)
+        window.minSize = NSSize(width: 320, height: 232)
         window.styleMask.insert(.resizable)
         window.isOpaque = true
         window.backgroundColor = .black
@@ -595,10 +678,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         dropView.onDropURLs = { [weak self] urls in self?.handleDroppedURLs(urls) }
         window.contentView = dropView
         let content = dropView
-        let barHeight = Self.controlsBarHeight
 
         content.wantsLayer = true
         content.layer?.backgroundColor = NSColor.black.cgColor
+
+        // Left column: video surface over the capsule footer.
+        playerColumn = NSView(frame: .zero)
+        playerColumn.translatesAutoresizingMaskIntoConstraints = false
+        playerColumn.wantsLayer = true
+        playerColumn.layer?.backgroundColor = NSColor.black.cgColor
+        content.addSubview(playerColumn)
 
         playerSurface = PlayerLayerView(frame: .zero)
         playerSurface.translatesAutoresizingMaskIntoConstraints = false
@@ -606,21 +695,19 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         playerSurface.setContentHuggingPriority(.defaultLow, for: .vertical)
         playerSurface.setContentCompressionResistancePriority(.defaultLow, for: .horizontal)
         playerSurface.setContentCompressionResistancePriority(.defaultLow, for: .vertical)
-        content.addSubview(playerSurface)
+        playerColumn.addSubview(playerSurface)
 
-        // Full-bleed click + scroll over the picture (controls sit above).
+        // Click + scroll catcher covers only the picture — never the footer/inspector.
         clickView = VideoScrollView(frame: .zero)
         clickView.translatesAutoresizingMaskIntoConstraints = false
         clickView.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
         clickView.onDoubleClick = { [weak self] in self?.loopPointAtCurrentTime() }
-        content.addSubview(clickView)
+        playerColumn.addSubview(clickView)
 
-        // Permanent dark-gray strip under the video — no overlay, no auto-hide.
-        controlsBar = NSView(frame: .zero)
-        controlsBar.wantsLayer = true
-        controlsBar.layer?.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
-        controlsBar.translatesAutoresizingMaskIntoConstraints = false
-        content.addSubview(controlsBar)
+        // Footer strip + glass capsule.
+        footer = NSView(frame: .zero)
+        footer.translatesAutoresizingMaskIntoConstraints = false
+        playerColumn.addSubview(footer)
 
         elapsedLabel = makeTimeLabel("0:00")
         remainingLabel = makeTimeLabel("-0:00")
@@ -633,104 +720,165 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             self?.scrubValueChanged(seconds)
         }
         scrubBar.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
-        scrubBar.onDoubleClick = { [weak self] seconds in self?.handleLoopPointInput(at: seconds) }
-
-        volumeSlider = VolumeSlider(frame: .zero)
-        volumeSlider.translatesAutoresizingMaskIntoConstraints = false
-        volumeSlider.value = 1.0
-        volumeSlider.onValueChanged = { [weak self] volume in
-            self?.applyVolume(Float(volume))
+        scrubBar.onDoubleClick = { [weak self] seconds, hadPair in
+            self?.handleLoopPointInput(at: seconds, clearsExistingLoop: hadPair)
         }
 
         slomoButton = SlomoButton(frame: .zero)
         slomoButton.translatesAutoresizingMaskIntoConstraints = false
+        slomoButton.accessibilityName = "Toggle half speed"
+        slomoButton.toolTip = "Half speed"
         slomoButton.onActivate = { [weak self] in self?.toggleSlomo() }
+        slomoButton.setTitle("1")
 
-        controlsBar.addSubview(elapsedLabel)
-        controlsBar.addSubview(scrubBar)
-        controlsBar.addSubview(remainingLabel)
-        controlsBar.addSubview(volumeSlider)
-        controlsBar.addSubview(slomoButton)
+        infoButton = InfoButton(frame: .zero)
+        infoButton.translatesAutoresizingMaskIntoConstraints = false
+        infoButton.accessibilityName = "Video Info"
+        infoButton.toolTip = "Video Info"
+        infoButton.onActivate = { [weak self] in self?.toggleInfo() }
 
-        rateHUD = makeRateHUD()
-        content.addSubview(rateHUD)
+        // Row content lives inside the capsule material; its own 10pt padding
+        // is internal so the glass can manage the row as its contentView.
+        let row = NSView(frame: .zero)
+        row.translatesAutoresizingMaskIntoConstraints = false
+        row.addSubview(elapsedLabel)
+        row.addSubview(scrubBar)
+        row.addSubview(remainingLabel)
+        row.addSubview(slomoButton)
+        row.addSubview(infoButton)
 
+        let capsule = makeCapsuleContainer(content: row)
+        footer.addSubview(capsule)
+
+        // Right-hand info column + hairline separator (hidden until requested).
+        infoSeparator = NSView(frame: .zero)
+        infoSeparator.wantsLayer = true
+        infoSeparator.layer?.backgroundColor = NSColor.separatorColor.cgColor
+        infoSeparator.translatesAutoresizingMaskIntoConstraints = false
+        infoSeparator.isHidden = true
+        content.addSubview(infoSeparator)
+
+        infoColumn = VideoInfoView(frame: .zero)
+        infoColumn.translatesAutoresizingMaskIntoConstraints = false
+        infoColumn.isHidden = true
+        infoColumn.setFileName(videoURL.lastPathComponent)
+        content.addSubview(infoColumn)
+
+        metadataSession = VideoMetadataSession()
+        metadataSession.onChange = { [weak self] state in
+            self?.infoColumn.present(state)
+        }
+
+        let footerH = PlayerWindowLayout.footerHeight
+        let capsuleH = PlayerWindowLayout.capsuleHeight
+        let capsuleInsetX = PlayerWindowLayout.capsuleHorizontalInset
+        let circle = PlayerWindowLayout.circleDiameter
         NSLayoutConstraint.activate([
-            playerSurface.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            playerSurface.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            playerSurface.topAnchor.constraint(equalTo: content.topAnchor),
-            playerSurface.bottomAnchor.constraint(equalTo: controlsBar.topAnchor),
+            playerColumn.leadingAnchor.constraint(equalTo: content.leadingAnchor),
+            playerColumn.topAnchor.constraint(equalTo: content.topAnchor),
+            playerColumn.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            playerColumn.trailingAnchor.constraint(equalTo: infoSeparator.leadingAnchor),
 
-            clickView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            clickView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            clickView.topAnchor.constraint(equalTo: content.topAnchor),
-            clickView.bottomAnchor.constraint(equalTo: controlsBar.topAnchor),
+            playerSurface.leadingAnchor.constraint(equalTo: playerColumn.leadingAnchor),
+            playerSurface.trailingAnchor.constraint(equalTo: playerColumn.trailingAnchor),
+            playerSurface.topAnchor.constraint(equalTo: playerColumn.topAnchor),
+            playerSurface.bottomAnchor.constraint(equalTo: footer.topAnchor),
 
-            controlsBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
-            controlsBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
-            controlsBar.bottomAnchor.constraint(equalTo: content.bottomAnchor),
-            controlsBar.heightAnchor.constraint(equalToConstant: barHeight),
+            clickView.leadingAnchor.constraint(equalTo: playerColumn.leadingAnchor),
+            clickView.trailingAnchor.constraint(equalTo: playerColumn.trailingAnchor),
+            clickView.topAnchor.constraint(equalTo: playerColumn.topAnchor),
+            clickView.bottomAnchor.constraint(equalTo: footer.topAnchor),
 
-            scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 10),
-            scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
-            scrubBar.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
-            scrubBar.heightAnchor.constraint(equalToConstant: 16),
+            footer.leadingAnchor.constraint(equalTo: playerColumn.leadingAnchor),
+            footer.trailingAnchor.constraint(equalTo: playerColumn.trailingAnchor),
+            footer.bottomAnchor.constraint(equalTo: playerColumn.bottomAnchor),
+            footer.heightAnchor.constraint(equalToConstant: footerH),
 
-            elapsedLabel.leadingAnchor.constraint(equalTo: controlsBar.leadingAnchor, constant: 12),
-            elapsedLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
-            elapsedLabel.widthAnchor.constraint(equalToConstant: 52),
+            capsule.leadingAnchor.constraint(equalTo: footer.leadingAnchor, constant: capsuleInsetX),
+            capsule.trailingAnchor.constraint(equalTo: footer.trailingAnchor, constant: -capsuleInsetX),
+            capsule.centerYAnchor.constraint(equalTo: footer.centerYAnchor),
+            capsule.heightAnchor.constraint(equalToConstant: capsuleH),
 
-            volumeSlider.trailingAnchor.constraint(equalTo: slomoButton.leadingAnchor, constant: -10),
-            volumeSlider.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
-            volumeSlider.widthAnchor.constraint(equalToConstant: 70),
-            volumeSlider.heightAnchor.constraint(equalToConstant: 20),
+            elapsedLabel.leadingAnchor.constraint(equalTo: row.leadingAnchor, constant: 10),
+            elapsedLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            elapsedLabel.widthAnchor.constraint(equalToConstant: 44),
 
-            slomoButton.trailingAnchor.constraint(equalTo: controlsBar.trailingAnchor, constant: -12),
-            slomoButton.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
-            slomoButton.widthAnchor.constraint(equalToConstant: 68),
-            slomoButton.heightAnchor.constraint(equalToConstant: 22),
+            scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 8),
+            scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -8),
+            scrubBar.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            scrubBar.heightAnchor.constraint(equalToConstant: circle),
 
-            remainingLabel.trailingAnchor.constraint(equalTo: volumeSlider.leadingAnchor, constant: -10),
-            remainingLabel.centerYAnchor.constraint(equalTo: scrubBar.centerYAnchor),
-            remainingLabel.widthAnchor.constraint(equalToConstant: 58),
+            remainingLabel.trailingAnchor.constraint(equalTo: slomoButton.leadingAnchor, constant: -8),
+            remainingLabel.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            remainingLabel.widthAnchor.constraint(equalToConstant: 50),
 
-            rateHUD.centerXAnchor.constraint(equalTo: content.centerXAnchor),
-            rateHUD.centerYAnchor.constraint(equalTo: content.centerYAnchor),
+            slomoButton.trailingAnchor.constraint(equalTo: infoButton.leadingAnchor, constant: -8),
+            slomoButton.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            slomoButton.widthAnchor.constraint(equalToConstant: circle),
+            slomoButton.heightAnchor.constraint(equalToConstant: circle),
+
+            infoButton.trailingAnchor.constraint(equalTo: row.trailingAnchor, constant: -10),
+            infoButton.centerYAnchor.constraint(equalTo: row.centerYAnchor),
+            infoButton.widthAnchor.constraint(equalToConstant: circle),
+            infoButton.heightAnchor.constraint(equalToConstant: circle),
+
+            infoSeparator.topAnchor.constraint(equalTo: content.topAnchor),
+            infoSeparator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            infoSeparator.trailingAnchor.constraint(equalTo: infoColumn.leadingAnchor),
+            infoSeparator.widthAnchor.constraint(equalToConstant: PlayerWindowLayout.separatorWidth),
+
+            infoColumn.topAnchor.constraint(equalTo: content.topAnchor),
+            infoColumn.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            infoColumn.trailingAnchor.constraint(equalTo: content.trailingAnchor),
+            infoColumn.widthAnchor.constraint(equalToConstant: PlayerWindowLayout.inspectorWidth),
         ])
+    }
+
+    /// Rounded glass capsule on macOS 26+; dark HUD material before that.
+    /// The row view becomes the effect view's content on glass.
+    private func makeCapsuleContainer(content row: NSView) -> NSView {
+        let radius = PlayerWindowLayout.capsuleHeight / 2
+        if #available(macOS 26.0, *) {
+            let glass = NSGlassEffectView()
+            glass.style = .regular
+            glass.cornerRadius = radius
+            glass.contentView = row
+            glass.translatesAutoresizingMaskIntoConstraints = false
+            if #available(macOS 27.0, *) {
+                glass.effectIsInteractive = true
+            }
+            return glass
+        }
+        let effect = NSVisualEffectView()
+        effect.material = .hudWindow
+        effect.state = .active
+        effect.appearance = NSAppearance(named: .darkAqua)
+        effect.wantsLayer = true
+        effect.layer?.cornerRadius = radius
+        effect.layer?.masksToBounds = true
+        effect.translatesAutoresizingMaskIntoConstraints = false
+        effect.addSubview(row)
+        NSLayoutConstraint.activate([
+            row.leadingAnchor.constraint(equalTo: effect.leadingAnchor),
+            row.trailingAnchor.constraint(equalTo: effect.trailingAnchor),
+            row.topAnchor.constraint(equalTo: effect.topAnchor),
+            row.bottomAnchor.constraint(equalTo: effect.bottomAnchor),
+        ])
+        return effect
     }
 
     private func makeTimeLabel(_ string: String) -> NSTextField {
         let label = NSTextField(labelWithString: string)
         label.translatesAutoresizingMaskIntoConstraints = false
         label.font = NSFont.monospacedDigitSystemFont(ofSize: 12, weight: .semibold)
-        label.textColor = .white
+        label.textColor = .labelColor
         label.alignment = .center
         label.isBezeled = false
         label.drawsBackground = false
         label.shadow = {
             let s = NSShadow()
-            s.shadowColor = NSColor.black.withAlphaComponent(0.85)
+            s.shadowColor = NSColor.black.withAlphaComponent(0.35)
             s.shadowBlurRadius = 3
-            s.shadowOffset = NSSize(width: 0, height: -1)
-            return s
-        }()
-        return label
-    }
-
-    private func makeRateHUD() -> PassthroughLabel {
-        let label = PassthroughLabel(labelWithString: "1×")
-        label.translatesAutoresizingMaskIntoConstraints = false
-        label.font = NSFont.monospacedDigitSystemFont(ofSize: 42, weight: .semibold)
-        label.textColor = .white
-        label.alignment = .center
-        label.isBezeled = false
-        label.drawsBackground = false
-        label.alphaValue = 0
-        label.isHidden = true
-        label.shadow = {
-            let s = NSShadow()
-            s.shadowColor = NSColor.black.withAlphaComponent(0.85)
-            s.shadowBlurRadius = 8
             s.shadowOffset = NSSize(width: 0, height: -1)
             return s
         }()
@@ -833,7 +981,42 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         updateTimeLabels(current: scrubBar.value)
     }
 
+    /// Video aspect including the user's display rotation (L key).
+    private var rotatedSourceSize: CGSize {
+        guard let pixelSize = videoPixelSize, pixelSize.width > 0, pixelSize.height > 0 else {
+            return CGSize(width: 16, height: 9)
+        }
+        return displayQuarterTurns % 2 == 1
+            ? CGSize(width: pixelSize.height, height: pixelSize.width)
+            : pixelSize
+    }
+
+    private var videoAspect: CGFloat {
+        let s = rotatedSourceSize
+        return s.height > 0 ? s.width / s.height : 0
+    }
+
+    /// Title bar + any real frame chrome, measured rather than hard-coded.
+    private var frameChromeHeight: CGFloat {
+        guard let window else { return 0 }
+        return window.frameRect(forContentRect: .zero).height
+    }
+
+    private func updateMinSize() {
+        guard let window else { return }
+        let aspect = videoAspect
+        let minVideoH = aspect > 0
+            ? max(PlayerWindowLayout.minVideoHeight,
+                  floor(PlayerWindowLayout.minVideoWidth / aspect))
+            : PlayerWindowLayout.minVideoHeight
+        let minContent = PlayerWindowLayout.contentSize(
+            videoSize: CGSize(width: PlayerWindowLayout.minVideoWidth, height: minVideoH),
+            inspectorOpen: infoOpen)
+        window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).size
+    }
+
     /// Size the window to the clip’s native resolution (scaled down only to fit the screen).
+    /// The FOOTER and open inspector are UI chrome — the video keeps its own aspect.
     private func applyNativeWindowSize(_ videoSize: CGSize) {
         guard let window else { return }
         videoPixelSize = videoSize
@@ -841,23 +1024,17 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         guard let screen else { return }
 
         let visible = screen.visibleFrame.insetBy(dx: 20, dy: 20)
-        let titleBarSlop: CGFloat = 28
-        var contentW = videoSize.width
-        var contentH = videoSize.height
-        let maxW = visible.width
-        let maxH = max(200, visible.height - titleBarSlop)
-        let scale = min(1.0, min(maxW / contentW, maxH / contentH))
-        contentW = max(320, floor(contentW * scale))
-        contentH = max(180, floor(contentH * scale))
+        let inspectorAlloc = infoOpen ? PlayerWindowLayout.inspectorAllocation : 0
+        let maxVideoW = max(64, visible.width - inspectorAlloc)
+        let maxVideoH = max(64, visible.height - frameChromeHeight - PlayerWindowLayout.footerHeight)
+        let fitted = PlayerWindowLayout.fitVideoSize(
+            source: rotatedSourceSize, maxWidth: maxVideoW, maxHeight: maxVideoH)
+        lastVideoSize = fitted
 
-        // Lock resize to clip aspect — no stretchy-gum distortion or letterbox bars.
-        window.contentAspectRatio = NSSize(width: contentW, height: contentH)
-        let minContentH = max(180, floor(320 * contentH / contentW))
-        let minFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 320, height: minContentH))
-        window.minSize = minFrame.size
+        updateMinSize()
 
-        let contentRect = NSRect(x: 0, y: 0, width: contentW, height: contentH)
-        var frame = window.frameRect(forContentRect: contentRect)
+        let contentSize = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: infoOpen)
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
 
         // Prefer saved origin if we have one; otherwise cascade.
         if let saved = WindowFrameStore.loadFrame(for: videoURL) {
@@ -873,8 +1050,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if frame.maxY > visible.maxY { frame.origin.y = visible.maxY - frame.height }
         if frame.minY < visible.minY { frame.origin.y = visible.minY }
 
+        isUpdatingLayout = true
         window.animationBehavior = .none
         window.setFrame(frame, display: true, animate: false)
+        isUpdatingLayout = false
     }
 
     private func attachPlayer(with asset: AVURLAsset) {
@@ -895,7 +1074,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         player.allowsExternalPlayback = false
         queuePlayer = player
         playerSurface.player = player
-        applyVolume(Float(volumeSlider.value))
+        applyVolume(currentVolume)
 
         playerLooper = AVPlayerLooper(player: player, templateItem: item)
         // A fresh looper means full-clip looping — drop any stale markers set before attach.
@@ -918,6 +1097,69 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         didReveal = true
         slamOpaqueFront()
         MediaKeys.shared.refreshNowPlaying()
+    }
+
+    // MARK: - Info column (lazy metadata — playback never touches it)
+
+    private func toggleInfo() {
+        setInfoVisible(!infoOpen)
+    }
+
+    /// Open: widen the window, keeping the video size when the screen allows.
+    /// Close: restore the remembered frame unless the user moved/resized while open.
+    private func setInfoVisible(_ open: Bool) {
+        guard open != infoOpen, let window else { return }
+        infoOpen = open
+        infoButton.isSelected = open
+
+        if open {
+            preInfoFrame = window.frame
+            infoGeometryDirty = false
+            infoSeparator.isHidden = false
+            infoColumn.isHidden = false
+            infoColumn.setFileName(videoURL.lastPathComponent)
+            metadataSession.show()
+
+            let add = PlayerWindowLayout.inspectorAllocation
+            var frame = window.frame
+            let visible = (window.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 8, dy: 8)
+                ?? NSRect(x: 0, y: 0, width: 10_000, height: 10_000)
+            frame.size.width += add
+            if frame.maxX > visible.maxX { frame.origin.x -= frame.maxX - visible.maxX }
+            if frame.minX < visible.minX {
+                // Won't fit even shifted — shrink the video uniformly to make room.
+                frame.origin.x = visible.minX
+                let maxVideoW = max(64, visible.width - add)
+                let maxVideoH = max(64, visible.height - frameChromeHeight - PlayerWindowLayout.footerHeight)
+                let fitted = PlayerWindowLayout.fitVideoSize(
+                    source: rotatedSourceSize, maxWidth: maxVideoW, maxHeight: maxVideoH)
+                lastVideoSize = fitted
+                let content = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: true)
+                frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
+                frame.origin.y = window.frame.maxY - frame.height // keep top edge
+            }
+            updateMinSize()
+            isUpdatingLayout = true
+            window.animationBehavior = .none
+            window.setFrame(frame, display: true, animate: false)
+            isUpdatingLayout = false
+        } else {
+            metadataSession.hide()
+            updateMinSize()
+            var frame = window.frame
+            if !infoGeometryDirty, let saved = preInfoFrame {
+                // Restore the pre-open width at the current origin (moves preserved).
+                frame.size.width = saved.width
+            } else {
+                frame.size.width -= PlayerWindowLayout.inspectorAllocation
+            }
+            infoSeparator.isHidden = true
+            infoColumn.isHidden = true
+            isUpdatingLayout = true
+            window.animationBehavior = .none
+            window.setFrame(frame, display: true, animate: false)
+            isUpdatingLayout = false
+        }
     }
 
     // MARK: - Custom loop range (double-click)
@@ -966,13 +1208,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private func loopPointAtCurrentTime() {
         let seconds = queuePlayer?.currentTime().seconds ?? scrubBar.value
         guard seconds.isFinite else { return }
-        handleLoopPointInput(at: seconds)
+        let hadPair = scrubBar.loopInValue != nil && scrubBar.loopOutValue != nil
+        handleLoopPointInput(at: seconds, clearsExistingLoop: hadPair)
     }
 
     /// One state machine for both surfaces: pending point → complete pair → clear.
-    private func handleLoopPointInput(at seconds: Double) {
-        if scrubBar.loopInValue != nil, scrubBar.loopOutValue != nil {
-            // Complete pair — clear it; the next double-click starts a fresh loop.
+    /// `clearsExistingLoop` comes from the scrub bar's click-sequence snapshot —
+    /// the first click of a double-click may itself have cleared the pair via
+    /// scrub-outside, so intent must arrive with the second click.
+    private func handleLoopPointInput(at seconds: Double, clearsExistingLoop: Bool) {
+        if clearsExistingLoop || (scrubBar.loopInValue != nil && scrubBar.loopOutValue != nil) {
             scrubBar.loopInValue = nil
             scrubBar.loopOutValue = nil
             scrubBar.needsDisplay = true
@@ -1082,6 +1327,9 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         scrubBar.loopOutValue = nil
         scrubBar.needsDisplay = true
         updateSlomoLabel()
+        if infoOpen { infoGeometryDirty = true }
+        infoColumn.setFileName(url.lastPathComponent)
+        metadataSession.setSource(url)
         lastKnobPixelX = -1
         updateTimeLabels(current: 0)
         AssetCache.preload(url)
@@ -1091,31 +1339,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
         bootPlayerFast()
         slamOpaqueFront()
-    }
-
-    private func flashRate() {
-        guard rateHUD != nil else { return }
-        rateHUD.stringValue = PlaybackFormatting.formatRate(currentRate)
-        rateHUD.isHidden = false
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.08
-            rateHUD.animator().alphaValue = 1
-        }
-        rateHUDHideWork?.cancel()
-        let work = DispatchWorkItem { [weak self] in
-            guard let self else { return }
-            NSAnimationContext.runAnimationGroup({ ctx in
-                ctx.duration = 0.28
-                self.rateHUD.animator().alphaValue = 0
-            }, completionHandler: { [weak self] in
-                MainActor.assumeIsolated {
-                    self?.rateHUD.isHidden = true
-                }
-            })
-        }
-        rateHUDHideWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.85, execute: work)
-        updateSlomoLabel()
     }
 
     // MARK: - Scrub
@@ -1348,16 +1571,26 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
     }
 
+    /// Effective wrap bounds: the custom pair while one is active, else the clip.
+    private var loopBounds: (start: Double, end: Double) {
+        if let lo = scrubBar?.loopInValue, let hi = scrubBar?.loopOutValue, hi > lo {
+            return (lo, hi)
+        }
+        return (0, max(durationSeconds, scrubBar?.maxValue ?? 0, 0.001))
+    }
+
     private func playerTimeFired(_ time: CMTime) {
         guard !isScrubbing, !scrollScrubActive, !mediaHoldScrubActive else { return }
         let seconds = time.seconds
         guard seconds.isFinite else { return }
 
+        let bounds = loopBounds
         let slop = frameDuration * 2
         if let pending = pendingPlayheadSeconds {
             let waited = CFAbsoluteTimeGetCurrent() - pendingPlayheadSince
             let caughtUp = abs(seconds - pending) <= slop
-            let looped = durationSeconds > 1 && seconds < slop && pending > durationSeconds - 0.5
+            let looped = PlayerTimelineMath.isLoopWrap(
+                previous: pending, current: seconds, start: bounds.start, end: bounds.end)
             if caughtUp || looped || waited > 0.22 {
                 pendingPlayheadSeconds = nil
             } else {
@@ -1367,8 +1600,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
         let playing = (queuePlayer?.rate ?? 0) != 0
         if playing, seconds + slop < scrubBar.value {
-            let wrapped = durationSeconds > 1 && seconds < 0.5 && scrubBar.value > durationSeconds * 0.7
-            if wrapped {
+            // Backward jump: accept only a wrap to the effective range start —
+            // an active custom loop wraps at its in-point, not at time zero.
+            if PlayerTimelineMath.isLoopWrap(
+                previous: scrubBar.value, current: seconds, start: bounds.start, end: bounds.end) {
                 setScrubBarTime(seconds)
             }
             return
@@ -1406,11 +1641,32 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
     }
 
+    /// Player owns keys only when a player surface has focus — inspector
+    /// buttons, selectable text, and the circle controls get theirs first.
+    private func isNonPlayerResponder(_ responder: NSResponder?) -> Bool {
+        guard let responder else { return false }
+        if responder === window?.contentView || responder === clickView
+            || responder === playerSurface || responder === scrubBar
+            || responder === playerColumn || responder === footer {
+            return false
+        }
+        return true
+    }
+
     private func handleKey(_ event: NSEvent) -> Bool {
         let commandHeld = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
         if event.type == .keyDown, commandHeld, event.charactersIgnoringModifiers?.lowercased() == "q" {
             NSApp.terminate(nil)
             return true
+        }
+
+        if isNonPlayerResponder(window?.firstResponder) {
+            // Focus left the player mid-hold — release the scrub so it can't stick.
+            if mediaHoldScrubActive || !arrowHoldKeys.isEmpty {
+                arrowHoldKeys.removeAll()
+                stopHoldScrub()
+            }
+            return false
         }
 
         // F7 / F9 as standard function keys (not HID media keys) — hold to scrub.
@@ -1444,12 +1700,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
 
         switch event.charactersIgnoringModifiers {
-        case "]":
-            adjustSpeed(by: 0.25)
-            return true
-        case "[":
-            adjustSpeed(by: -0.25)
-            return true
         case "0":
             resetSpeed()
             return true
@@ -1580,19 +1830,17 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func applyVolume(_ volume: Float) {
-        guard let player = queuePlayer else { return }
+        currentVolume = volume
         if volume > 0.0001 {
             preMuteVolume = volume
         }
-        player.volume = volume
+        queuePlayer?.volume = volume
     }
 
     private func adjustVolume(by delta: Float) {
         guard let player = queuePlayer else { return }
         let newVol = min(1.0, max(0.0, player.volume + delta))
         applyVolume(newVol)
-        volumeSlider.value = Double(newVol)
-        volumeSlider.needsDisplay = true
     }
 
     private func toggleMute() {
@@ -1605,18 +1853,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             preMuteVolume = max(player.volume, 0.0001)
             applyVolume(0)
         }
-        volumeSlider.value = Double(player.volume)
-        volumeSlider.needsDisplay = true
-    }
-
-    private func adjustSpeed(by delta: Float) {
-        // M5 can decode high rates cleanly — allow up to 8×.
-        let newRate = max(0.25, min(8.0, currentRate + delta))
-        currentRate = newRate
-        if let player = queuePlayer, player.rate != 0 {
-            player.rate = currentRate
-        }
-        flashRate()
     }
 
     private func resetSpeed() {
@@ -1624,11 +1860,11 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
-        flashRate()
+        updateSlomoLabel()
     }
 
-    /// 1 — toggle 50% / 100% speed. The Slo-Mo button passes flashHUD: false to stay silent.
-    private func toggleHalfSpeed(flashHUD: Bool = true) {
+    /// 1 — toggle 50% / 100% speed. Silent everywhere: the circle's glyph IS the indicator.
+    private func toggleHalfSpeed() {
         if abs(currentRate - 0.5) < 0.001 {
             currentRate = 1.0
         } else {
@@ -1637,20 +1873,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
-        if flashHUD {
-            flashRate()
-        } else {
-            updateSlomoLabel()
-        }
+        updateSlomoLabel()
     }
 
-    /// Slo-Mo button — same half-speed toggle as the "1" key, but no HUD flash.
+    /// Speed circle — same half-speed toggle as the "1" key.
     private func toggleSlomo() {
-        toggleHalfSpeed(flashHUD: false)
+        toggleHalfSpeed()
     }
 
     private func updateSlomoLabel() {
-        slomoButton?.setTitle(abs(currentRate - 0.5) < 0.001 ? "Normal" : "Slo-Mo")
+        slomoButton?.setTitle(abs(currentRate - 0.5) < 0.001 ? "½" : "1")
     }
 
     /// L — rotate counter-clockwise (display only, file unchanged).
@@ -1667,35 +1899,29 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     }
 
     private func updateWindowAspectForRotation() {
-        guard let window, let pixelSize = videoPixelSize else { return }
-        let swapped = displayQuarterTurns % 2 == 1
-        let natW = swapped ? pixelSize.height : pixelSize.width
-        let natH = swapped ? pixelSize.width : pixelSize.height
+        guard let window, videoPixelSize != nil else { return }
+        if infoOpen { infoGeometryDirty = true }
 
         let screen = window.screen ?? NSScreen.main
         guard let screen else { return }
         let visible = screen.visibleFrame.insetBy(dx: 20, dy: 20)
-        let titleBarSlop: CGFloat = 28
-        var contentW = natW
-        var contentH = natH
-        let maxW = visible.width
-        let maxH = max(200, visible.height - titleBarSlop)
-        let scale = min(1.0, min(maxW / contentW, maxH / contentH))
-        contentW = max(320, floor(contentW * scale))
-        contentH = max(180, floor(contentH * scale))
+        let inspectorAlloc = infoOpen ? PlayerWindowLayout.inspectorAllocation : 0
+        let fitted = PlayerWindowLayout.fitVideoSize(
+            source: rotatedSourceSize,
+            maxWidth: max(64, visible.width - inspectorAlloc),
+            maxHeight: max(64, visible.height - frameChromeHeight - PlayerWindowLayout.footerHeight))
+        lastVideoSize = fitted
+        updateMinSize()
 
-        window.contentAspectRatio = NSSize(width: contentW, height: contentH)
-        let minContentH = max(180, floor(320 * contentH / contentW))
-        let minFrame = window.frameRect(forContentRect: NSRect(x: 0, y: 0, width: 320, height: minContentH))
-        window.minSize = minFrame.size
-
-        let contentRect = NSRect(x: 0, y: 0, width: contentW, height: contentH)
-        var frame = window.frameRect(forContentRect: contentRect)
+        let contentSize = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: infoOpen)
+        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
         let old = window.frame
         frame.origin.x = old.midX - frame.width / 2
         frame.origin.y = old.midY - frame.height / 2
+        isUpdatingLayout = true
         window.animationBehavior = .none
         window.setFrame(frame, display: true, animate: false)
+        isUpdatingLayout = false
     }
 
     // MARK: - NSWindowDelegate (never Dock)
@@ -1718,7 +1944,33 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         saveWindowFrame()
     }
 
+    /// User-driven resize: keep the VIDEO region at clip aspect; the footer and
+    /// inspector are fixed chrome, so the whole window is not aspect-locked.
+    func windowWillResize(_ sender: NSWindow, to proposed: NSSize) -> NSSize {
+        let aspect = videoAspect
+        guard aspect > 0 else { return proposed }
+        if infoOpen { infoGeometryDirty = true }
+
+        let proposedContent = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: proposed)).size
+        let inspectorAlloc = infoOpen ? PlayerWindowLayout.inspectorAllocation : 0
+        let visible = (sender.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 8, dy: 8)
+            ?? NSRect(x: 0, y: 0, width: 10_000, height: 10_000)
+        let maxVideo = CGSize(
+            width: max(64, visible.width - inspectorAlloc),
+            height: max(64, visible.height - frameChromeHeight - PlayerWindowLayout.footerHeight))
+        let corrected = PlayerWindowLayout.aspectCorrectedContentSize(
+            proposedContent: proposedContent,
+            videoAspect: aspect,
+            lastVideoSize: lastVideoSize,
+            inspectorOpen: infoOpen,
+            maxVideoSize: maxVideo)
+        return sender.frameRect(forContentRect: NSRect(origin: .zero, size: corrected)).size
+    }
+
     func windowDidResize(_ notification: Notification) {
+        if !isUpdatingLayout, let surface = playerSurface {
+            lastVideoSize = surface.bounds.size
+        }
         saveWindowFrame()
     }
 
@@ -1750,8 +2002,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         queuedSeekSeconds = nil
         queuedSeekCompletion = nil
         arrowHoldKeys.removeAll()
-        rateHUDHideWork?.cancel()
-        rateHUDHideWork = nil
+        metadataSession?.invalidate()
         AssetCache.cancelLoads(for: videoURL)
         if removeKeyMonitor, let keyMonitor {
             NSEvent.removeMonitor(keyMonitor)

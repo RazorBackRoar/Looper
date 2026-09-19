@@ -16,6 +16,8 @@
 		A10000000000000000000007 /* LooperSmokeTests.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000008 /* LooperSmokeTests.swift */; };
 		A10000000000000000000008 /* MediaKeys.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000009 /* MediaKeys.swift */; };
 		A10000000000000000000009 /* PlaybackFormatting.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000010 /* PlaybackFormatting.swift */; };
+		A10000000000000000000010 /* VideoMetadata.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000011 /* VideoMetadata.swift */; };
+		A10000000000000000000011 /* VideoInfoView.swift in Sources */ = {isa = PBXBuildFile; fileRef = A20000000000000000000012 /* VideoInfoView.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
@@ -28,6 +30,8 @@
 		A20000000000000000000007 /* AssetCache.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AssetCache.swift; sourceTree = "<group>"; };
 		A20000000000000000000009 /* MediaKeys.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = MediaKeys.swift; sourceTree = "<group>"; };
 		A20000000000000000000010 /* PlaybackFormatting.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PlaybackFormatting.swift; sourceTree = "<group>"; };
+		A20000000000000000000011 /* VideoMetadata.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoMetadata.swift; sourceTree = "<group>"; };
+		A20000000000000000000012 /* VideoInfoView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VideoInfoView.swift; sourceTree = "<group>"; };
 		A30000000000000000000001 /* Looper.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = Looper.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A20000000000000000000008 /* LooperSmokeTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = LooperSmokeTests.swift; sourceTree = "<group>"; };
 		A30000000000000000000002 /* LooperTests.xctest */ = {isa = PBXFileReference; explicitFileType = wrapper.cfbundle; includeInIndex = 0; path = LooperTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -88,6 +92,8 @@
 				A20000000000000000000003 /* WindowFrameStore.swift */,
 				A20000000000000000000009 /* MediaKeys.swift */,
 				A20000000000000000000010 /* PlaybackFormatting.swift */,
+				A20000000000000000000011 /* VideoMetadata.swift */,
+				A20000000000000000000012 /* VideoInfoView.swift */,
 				A20000000000000000000005 /* Info.plist */,
 				A20000000000000000000004 /* Assets.xcassets */,
 			);
@@ -209,6 +215,8 @@
 				A10000000000000000000003 /* WindowFrameStore.swift in Sources */,
 				A10000000000000000000008 /* MediaKeys.swift in Sources */,
 				A10000000000000000000009 /* PlaybackFormatting.swift in Sources */,
+				A10000000000000000000010 /* VideoMetadata.swift in Sources */,
+				A10000000000000000000011 /* VideoInfoView.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

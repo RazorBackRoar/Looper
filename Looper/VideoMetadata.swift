@@ -235,21 +235,13 @@ enum VideoMetadataReader {
 
         try Task.checkCancellation()
 
-        // Location.
+        // Location — just whether GPS was recorded; coordinates stay in the file.
         var locationFields: [VideoMetadataField] = []
         for entry in values {
             let lower = entry.key.lowercased()
             if lower.contains("iso6709") || lower.hasSuffix("location") {
                 if location == nil, let parsed = ISO6709LocationParser.parse(entry.text) {
                     location = parsed
-                    locationFields.append(VideoMetadataField(
-                        key: entry.key, label: "Coordinates",
-                        value: formatCoordinates(parsed), source: entry.source))
-                    if let alt = parsed.altitudeMeters {
-                        locationFields.append(VideoMetadataField(
-                            key: entry.key, label: "Altitude",
-                            value: String(format: "%.1f m", alt), source: entry.source))
-                    }
                     consumedKeys.insert("\(entry.source)|\(entry.key)")
                 }
             } else if lower.contains("location.name") || lower.contains("locationname") {
@@ -263,9 +255,10 @@ enum VideoMetadataReader {
                 consumedKeys.insert("\(entry.source)|\(entry.key)")
             }
         }
-        if !locationFields.isEmpty || location != nil {
-            sections.append(VideoMetadataSection(title: "Location", fields: locationFields))
-        }
+        locationFields.insert(VideoMetadataField(
+            key: "gps", label: "GPS", value: location != nil ? "Yes" : "No", source: "metadata"),
+            at: 0)
+        sections.append(VideoMetadataSection(title: "Location", fields: locationFields))
 
         try Task.checkCancellation()
 
@@ -350,7 +343,7 @@ enum VideoMetadataReader {
                     codec = codecLabel(CMFormatDescriptionGetMediaSubType(fd))
                     if let asbd = CMAudioFormatDescriptionGetStreamBasicDescription(fd) {
                         sampleRate = asbd.pointee.mSampleRate
-                        channels = asbd.pointee.mChannelsPerFrame
+                        channels = Double(asbd.pointee.mChannelsPerFrame)
                     }
                 }
                 audioFields.append(VideoMetadataField(
@@ -365,7 +358,7 @@ enum VideoMetadataReader {
                         key: "ach", label: "\(prefix)Channels",
                         value: channelLayout(Int(channels)), source: "track"))
                 }
-                if let lang = try? await track.load(.languageCode), let code = lang {
+                if let code = try? await track.load(.languageCode) {
                     let name = Locale(identifier: "en").localizedString(forLanguageCode: code) ?? code
                     audioFields.append(VideoMetadataField(
                         key: "alang", label: "\(prefix)Language", value: name, source: "track"))
@@ -490,18 +483,14 @@ enum VideoMetadataReader {
         case .quickTimeMetadata: return "QuickTime"
         case .quickTimeUserData: return "QuickTime User Data"
         case .isoUserData: return "ISO"
-        case .iTunes: return "iTunes"
-        case .id3: return "ID3"
+        case .iTunesMetadata: return "iTunes"
+        case .id3Metadata: return "ID3"
         case .hlsMetadata: return "HLS"
         default: return "Metadata"
         }
     }
 
     // MARK: Formatting helpers
-
-    static func formatCoordinates(_ location: VideoLocation) -> String {
-        String(format: "%.6f, %.6f", location.latitude, location.longitude)
-    }
 
     static func formatFrameRate(_ fps: Float) -> String {
         var s = String(format: "%.2f", Double(fps))

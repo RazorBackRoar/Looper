@@ -1,23 +1,13 @@
 import AppKit
-import MapKit
 
-// MARK: - Right-hand metadata inspector (read-only; map only after explicit consent)
+// MARK: - Right-hand metadata inspector (read-only)
 
 final class VideoInfoView: NSVisualEffectView {
-    typealias MapFactory = (VideoLocation) -> NSView?
-
-    /// Injected for tests — production builds a configured MKMapView.
-    var mapFactory: MapFactory = VideoInfoView.makeDefaultMapView
-    /// Test hook: number of times a map view was actually created.
-    private(set) var mapCreationCount = 0
-
     private let fileNameLabel = NSTextField(labelWithString: "")
     private let scrollView = NSScrollView()
     private let stackView = NSStackView()
-    private let statusLabel = NSTextField(wrappingLabelWithString: "")
 
     private var renderedState: VideoMetadataSession.State?
-    private var mapView: NSView?
     private var detailsExpanded = false
 
     static let columnWidth: CGFloat = 300
@@ -96,16 +86,14 @@ final class VideoInfoView: NSVisualEffectView {
         rebuildBody(for: state)
     }
 
-    /// New clip or close: drop rendered content and any map/consent state.
+    /// New clip or close: drop rendered content.
     func reset() {
         renderedState = nil
         detailsExpanded = false
-        removeMap()
         stackView.arrangedSubviews.forEach { stackView.removeArrangedSubview($0); $0.removeFromSuperview() }
     }
 
     private func rebuildBody(for state: VideoMetadataSession.State) {
-        removeMap()
         stackView.arrangedSubviews.forEach { stackView.removeArrangedSubview($0); $0.removeFromSuperview() }
 
         switch state {
@@ -118,8 +106,7 @@ final class VideoInfoView: NSVisualEffectView {
             spinner.translatesAutoresizingMaskIntoConstraints = false
             spinner.startAnimation(nil)
             stackView.addArrangedSubview(spinner)
-            let label = secondaryText("Loading metadata…")
-            stackView.addArrangedSubview(label)
+            stackView.addArrangedSubview(secondaryText("Loading metadata…"))
         case .unavailable(let message):
             stackView.addArrangedSubview(secondaryText(message))
         case .ready(let snapshot), .partial(let snapshot, _):
@@ -129,11 +116,11 @@ final class VideoInfoView: NSVisualEffectView {
 
     private func render(_ snapshot: VideoMetadataSnapshot) {
         for section in snapshot.sections {
-            addSection(title: section.title, fields: section.fields, location: snapshot.location)
+            addSection(title: section.title, fields: section.fields)
         }
         if !snapshot.unavailableSections.isEmpty {
-            let note = secondaryText("Unavailable: " + snapshot.unavailableSections.joined(separator: ", "))
-            stackView.addArrangedSubview(note)
+            stackView.addArrangedSubview(
+                secondaryText("Unavailable: " + snapshot.unavailableSections.joined(separator: ", ")))
         }
         if !snapshot.additionalFields.isEmpty {
             addDetailsDisclosure(fields: snapshot.additionalFields)
@@ -142,7 +129,7 @@ final class VideoInfoView: NSVisualEffectView {
 
     // MARK: - Sections
 
-    private func addSection(title: String, fields: [VideoMetadataField], location: VideoLocation?) {
+    private func addSection(title: String, fields: [VideoMetadataField]) {
         let sectionStack = NSStackView()
         sectionStack.orientation = .vertical
         sectionStack.alignment = .leading
@@ -156,10 +143,6 @@ final class VideoInfoView: NSVisualEffectView {
 
         for field in fields {
             sectionStack.addArrangedSubview(makeRow(label: field.label, value: field.value))
-        }
-
-        if title == "Location", let location {
-            sectionStack.addArrangedSubview(makeMapConsentRow(location: location))
         }
 
         stackView.addArrangedSubview(sectionStack)
@@ -237,8 +220,7 @@ final class VideoInfoView: NSVisualEffectView {
         detailsStack.spacing = 5
         detailsStack.translatesAutoresizingMaskIntoConstraints = false
         for field in fields {
-            let row = makeRow(label: field.label, value: field.value)
-            detailsStack.addArrangedSubview(row)
+            detailsStack.addArrangedSubview(makeRow(label: field.label, value: field.value))
             let source = secondaryText(field.source + " · " + field.key)
             source.font = NSFont.systemFont(ofSize: 9)
             detailsStack.addArrangedSubview(source)
@@ -250,87 +232,5 @@ final class VideoInfoView: NSVisualEffectView {
     @objc private func toggleDetails(_ sender: NSButton) {
         detailsExpanded.toggle()
         if let renderedState { rebuildBody(for: renderedState) }
-    }
-
-    // MARK: - Location map (opt-in only)
-
-    private func makeMapConsentRow(location: VideoLocation) -> NSView {
-        let container = NSStackView()
-        container.orientation = .vertical
-        container.alignment = .leading
-        container.spacing = 6
-        container.translatesAutoresizingMaskIntoConstraints = false
-
-        if let mapView {
-            mapView.translatesAutoresizingMaskIntoConstraints = false
-            container.addArrangedSubview(mapView)
-            mapView.widthAnchor.constraint(equalToConstant: Self.columnWidth - 64).isActive = true
-            mapView.heightAnchor.constraint(equalToConstant: 200).isActive = true
-
-            let hide = NSButton(title: "Hide Map", target: self, action: #selector(hideMap(_:)))
-            hide.bezelStyle = .accessoryBarAction
-            hide.controlSize = .small
-            hide.translatesAutoresizingMaskIntoConstraints = false
-            container.addArrangedSubview(hide)
-        } else {
-            let show = NSButton(title: "Show Map", target: self, action: #selector(showMap(_:)))
-            show.bezelStyle = .accessoryBarAction
-            show.controlSize = .small
-            show.translatesAutoresizingMaskIntoConstraints = false
-            container.addArrangedSubview(show)
-
-            container.addArrangedSubview(secondaryText("Loads Apple Maps for this recorded location."))
-        }
-        return container
-    }
-
-    @objc private func showMap(_ sender: NSButton) {
-        let location: VideoLocation?
-        switch renderedState {
-        case .ready(let snap), .partial(let snap, _): location = snap.location
-        default: location = nil
-        }
-        guard let location else { return }
-        guard let view = mapFactory(location) else {
-            if let renderedState { rebuildBody(for: renderedState) }
-            return
-        }
-        mapCreationCount += 1
-        mapView = view
-        if let renderedState { rebuildBody(for: renderedState) }
-    }
-
-    @objc private func hideMap(_ sender: NSButton) {
-        removeMap()
-        if let renderedState { rebuildBody(for: renderedState) }
-    }
-
-    private func removeMap() {
-        mapView?.removeFromSuperview()
-        mapView = nil
-    }
-
-    private static func makeDefaultMapView(_ location: VideoLocation) -> NSView? {
-        let mapView = MKMapView()
-        mapView.preferredConfiguration = MKStandardMapConfiguration(elevationStyle: .flat, emphasisStyle: .default)
-        mapView.showsUserLocation = false
-        mapView.isZoomEnabled = true
-        mapView.isScrollEnabled = true
-        mapView.isPitchEnabled = false
-        mapView.isRotateEnabled = false
-        mapView.showsZoomControls = false
-        mapView.showsCompass = false
-        mapView.wantsLayer = true
-        mapView.layer?.cornerRadius = 8
-        mapView.layer?.masksToBounds = true
-        let coordinate = CLLocationCoordinate2D(latitude: location.latitude, longitude: location.longitude)
-        mapView.setRegion(
-            MKCoordinateRegion(center: coordinate, latitudinalMeters: 3000, longitudinalMeters: 3000),
-            animated: false)
-        let annotation = MKPointAnnotation()
-        annotation.coordinate = coordinate
-        annotation.title = "Recorded location"
-        mapView.addAnnotation(annotation)
-        return mapView
     }
 }
