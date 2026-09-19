@@ -119,8 +119,7 @@ private final class VideoScrubBar: NSView {
     var onScrubEnd: (() -> Void)?
     var onValueChanged: ((Double) -> Void)?
     var onScroll: ((NSEvent) -> Void)?
-    var onLoopPointsChanged: ((Double, Double) -> Void)?
-    var onLoopCleared: (() -> Void)?
+    var onDoubleClick: ((Double) -> Void)?
 
     private var dragging = false
 
@@ -165,7 +164,7 @@ private final class VideoScrubBar: NSView {
             if let outValue = loopOutValue {
                 let outX = inset + trackW * CGFloat(min(1, max(0, outValue / maxValue)))
                 let rangeRect = NSRect(x: inX, y: trackY - trackH, width: outX - inX, height: trackH * 2)
-                NSColor.systemOrange.withAlphaComponent(0.35).setFill()
+                NSColor.systemGreen.withAlphaComponent(0.35).setFill()
                 NSBezierPath(roundedRect: rangeRect, xRadius: 4, yRadius: 4).fill()
                 drawLoopMarker(at: outX, trackY: trackY)
             }
@@ -177,7 +176,7 @@ private final class VideoScrubBar: NSView {
         let marker = NSRect(x: x - 2, y: trackY - 5, width: 4, height: 10)
         NSColor.black.withAlphaComponent(0.6).setFill()
         NSBezierPath(roundedRect: marker.insetBy(dx: -0.5, dy: -0.5), xRadius: 2, yRadius: 2).fill()
-        NSColor.systemOrange.setFill()
+        NSColor.systemGreen.setFill()
         NSBezierPath(roundedRect: marker, xRadius: 2, yRadius: 2).fill()
     }
 
@@ -190,42 +189,18 @@ private final class VideoScrubBar: NSView {
     }
 
     override func mouseDown(with event: NSEvent) {
-        if event.modifierFlags.contains(.command) {
-            handleLoopClick(with: event)
+        if event.clickCount == 2 {
+            let x = convert(event.locationInWindow, from: nil).x
+            let inset: CGFloat = 12
+            let trackW = max(bounds.width - inset * 2, 1)
+            let fraction = min(1, max(0, (x - inset) / trackW))
+            onDoubleClick?(Double(fraction) * maxValue)
             return
         }
         dragging = true
         window?.invalidateCursorRects(for: self)
         onScrubStart?()
         scrubTo(event)
-    }
-
-    private func handleLoopClick(with event: NSEvent) {
-        if event.modifierFlags.contains(.option) {
-            loopInValue = nil
-            loopOutValue = nil
-            needsDisplay = true
-            onLoopCleared?()
-            return
-        }
-        let x = convert(event.locationInWindow, from: nil).x
-        let inset: CGFloat = 12
-        let trackW = max(bounds.width - inset * 2, 1)
-        let fraction = min(1, max(0, (x - inset) / trackW))
-        let clicked = Double(fraction) * maxValue
-        if let inValue = loopInValue, loopOutValue == nil {
-            let lo = min(inValue, clicked)
-            let hi = max(inValue, clicked)
-            // Below this span the looper would churn items faster than a frame — keep the pending point.
-            guard hi - lo >= 0.1 else { return }
-            loopInValue = lo
-            loopOutValue = hi
-            onLoopPointsChanged?(lo, hi)
-        } else {
-            loopInValue = clicked
-            loopOutValue = nil
-        }
-        needsDisplay = true
     }
 
     override func mouseDragged(with event: NSEvent) {
@@ -422,85 +397,26 @@ private final class SlomoButton: NSView {
     }
 }
 
-// MARK: - Transparent QT-style overlay (subtle gradient, video shows through)
-
-private final class OverlayBarView: NSView {
-    var onScroll: ((NSEvent) -> Void)?
-    private var usesGlass = false
-
-    override var isOpaque: Bool { false }
-
-    override init(frame frameRect: NSRect) {
-        super.init(frame: frameRect)
-        wantsLayer = true
-        if #available(macOS 26.0, *) {
-            let glass = PassthroughGlassView()
-            glass.style = .regular
-            if #available(macOS 27.0, *) {
-                glass.effectIsInteractive = true
-            }
-            glass.translatesAutoresizingMaskIntoConstraints = false
-            addSubview(glass, positioned: .below, relativeTo: nil)
-            NSLayoutConstraint.activate([
-                glass.leadingAnchor.constraint(equalTo: leadingAnchor),
-                glass.trailingAnchor.constraint(equalTo: trailingAnchor),
-                glass.topAnchor.constraint(equalTo: topAnchor),
-                glass.bottomAnchor.constraint(equalTo: bottomAnchor),
-            ])
-            usesGlass = true
-        }
-    }
-
-    required init?(coder: NSCoder) {
-        fatalError("init(coder:) has not been implemented")
-    }
-
-    override func draw(_ dirtyRect: NSRect) {
-        if usesGlass { return }
-        guard let ctx = NSGraphicsContext.current?.cgContext else { return }
-        let colors = [
-            NSColor.black.withAlphaComponent(0).cgColor,
-            NSColor.black.withAlphaComponent(0.45).cgColor,
-        ] as CFArray
-        let space = CGColorSpaceCreateDeviceRGB()
-        if let gradient = CGGradient(colorsSpace: space, colors: colors, locations: [0, 1]) {
-            ctx.drawLinearGradient(
-                gradient,
-                start: CGPoint(x: bounds.midX, y: bounds.maxY),
-                end: CGPoint(x: bounds.midX, y: bounds.minY),
-                options: []
-            )
-        }
-    }
-
-    override func scrollWheel(with event: NSEvent) {
-        onScroll?(event)
-    }
-
-    override func hitTest(_ point: NSPoint) -> NSView? {
-        let hit = super.hitTest(point)
-        if hit === self { return nil }
-        return hit
-    }
-}
-
 // MARK: - Scroll catcher over the full picture (focus only — no click-to-pause)
 
 private final class VideoScrollView: NSView {
     var onScroll: ((NSEvent) -> Void)?
+    var onDoubleClick: (() -> Void)?
 
     override func scrollWheel(with event: NSEvent) {
         onScroll?(event)
+    }
+
+    override func mouseDown(with event: NSEvent) {
+        if event.clickCount == 2 { onDoubleClick?() }
     }
 
     override func acceptsFirstMouse(for event: NSEvent?) -> Bool { true }
 }
 
-/// Root content view: file drops bubble here; tracking area sees mouse over subviews.
+/// Root content view: file drops bubble here.
 private final class FileDropView: NSView {
     var onDropURLs: (([URL]) -> Void)?
-    var onMouseMoved: ((NSEvent) -> Void)?
-    var onMouseExited: (() -> Void)?
 
     static let videoExtensions: Set<String> = ["mp4", "mov", "m4v", "mkv"]
 
@@ -513,31 +429,6 @@ private final class FileDropView: NSView {
 
     required init?(coder: NSCoder) {
         fatalError("init(coder:) has not been implemented")
-    }
-
-    override func updateTrackingAreas() {
-        super.updateTrackingAreas()
-        trackingAreas.forEach { removeTrackingArea($0) }
-        addTrackingArea(
-            NSTrackingArea(
-                rect: bounds,
-                options: [.mouseMoved, .mouseEnteredAndExited, .activeInKeyWindow, .inVisibleRect],
-                owner: self,
-                userInfo: nil
-            )
-        )
-    }
-
-    override func mouseMoved(with event: NSEvent) {
-        onMouseMoved?(event)
-    }
-
-    override func mouseEntered(with event: NSEvent) {
-        onMouseMoved?(event)
-    }
-
-    override func mouseExited(with event: NSEvent) {
-        onMouseExited?()
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
@@ -601,7 +492,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var remainingLabel: NSTextField!
     private var volumeSlider: VolumeSlider!
     private var slomoButton: SlomoButton!
-    private var controlsBar: OverlayBarView!
+    private var controlsBar: NSView!
     private var rateHUD: PassthroughLabel!
     private var currentRate: Float = 1.0
     private var durationSeconds: Double = 0
@@ -623,10 +514,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var displayQuarterTurns = 0
     private var didResolveFrameRate = false
     private var preMuteVolume: Float = 1.0
-    private var hideControlsWork: DispatchWorkItem?
     private var rateHUDHideWork: DispatchWorkItem?
-    private static let controlsBarHeight: CGFloat = 52
-    private static let controlsHideDelay: TimeInterval = 2.4
+    private static let controlsBarHeight: CGFloat = 34
     /// AVPlayer cannot usefully absorb >30 seeks/s — 120Hz seeks are what made the picture jump.
     private static let maxSeekHz: Double = 30
     private var playheadLink: CADisplayLink?
@@ -661,7 +550,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         )
         window.title = videoURL.lastPathComponent
         window.isReleasedWhenClosed = false
-        window.acceptsMouseMovedEvents = true
         window.isExcludedFromWindowsMenu = false
         window.collectionBehavior = [.moveToActiveSpace, .fullScreenAuxiliary]
         window.tabbingMode = .disallowed
@@ -705,8 +593,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         let dropView = FileDropView(frame: window.contentView?.bounds ?? .zero)
         dropView.autoresizingMask = [.width, .height]
         dropView.onDropURLs = { [weak self] urls in self?.handleDroppedURLs(urls) }
-        dropView.onMouseMoved = { [weak self] event in self?.handleMouseMoved(event) }
-        dropView.onMouseExited = { [weak self] in self?.scheduleHideControls(delay: 0.45) }
         window.contentView = dropView
         let content = dropView
         let barHeight = Self.controlsBarHeight
@@ -726,11 +612,14 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         clickView = VideoScrollView(frame: .zero)
         clickView.translatesAutoresizingMaskIntoConstraints = false
         clickView.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
+        clickView.onDoubleClick = { [weak self] in self?.loopPointAtCurrentTime() }
         content.addSubview(clickView)
 
-        controlsBar = OverlayBarView(frame: .zero)
+        // Permanent dark-gray strip under the video — no overlay, no auto-hide.
+        controlsBar = NSView(frame: .zero)
+        controlsBar.wantsLayer = true
+        controlsBar.layer?.backgroundColor = NSColor(white: 0.16, alpha: 1).cgColor
         controlsBar.translatesAutoresizingMaskIntoConstraints = false
-        controlsBar.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
         content.addSubview(controlsBar)
 
         elapsedLabel = makeTimeLabel("0:00")
@@ -744,10 +633,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             self?.scrubValueChanged(seconds)
         }
         scrubBar.onScroll = { [weak self] event in self?.handleScrollWheel(event) }
-        scrubBar.onLoopPointsChanged = { [weak self] inSeconds, outSeconds in
-            self?.applyCustomLoop(inSeconds: inSeconds, outSeconds: outSeconds)
-        }
-        scrubBar.onLoopCleared = { [weak self] in self?.clearCustomLoop() }
+        scrubBar.onDoubleClick = { [weak self] seconds in self?.handleLoopPointInput(at: seconds) }
 
         volumeSlider = VolumeSlider(frame: .zero)
         volumeSlider.translatesAutoresizingMaskIntoConstraints = false
@@ -773,12 +659,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             playerSurface.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             playerSurface.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             playerSurface.topAnchor.constraint(equalTo: content.topAnchor),
-            playerSurface.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            playerSurface.bottomAnchor.constraint(equalTo: controlsBar.topAnchor),
 
             clickView.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             clickView.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             clickView.topAnchor.constraint(equalTo: content.topAnchor),
-            clickView.bottomAnchor.constraint(equalTo: content.bottomAnchor),
+            clickView.bottomAnchor.constraint(equalTo: controlsBar.topAnchor),
 
             controlsBar.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             controlsBar.trailingAnchor.constraint(equalTo: content.trailingAnchor),
@@ -787,7 +673,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
             scrubBar.leadingAnchor.constraint(equalTo: elapsedLabel.trailingAnchor, constant: 10),
             scrubBar.trailingAnchor.constraint(equalTo: remainingLabel.leadingAnchor, constant: -10),
-            scrubBar.bottomAnchor.constraint(equalTo: controlsBar.bottomAnchor, constant: -16),
+            scrubBar.centerYAnchor.constraint(equalTo: controlsBar.centerYAnchor),
             scrubBar.heightAnchor.constraint(equalToConstant: 16),
 
             elapsedLabel.leadingAnchor.constraint(equalTo: controlsBar.leadingAnchor, constant: 12),
@@ -1031,11 +917,10 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         player.playImmediately(atRate: currentRate)
         didReveal = true
         slamOpaqueFront()
-        scheduleHideControls()
         MediaKeys.shared.refreshNowPlaying()
     }
 
-    // MARK: - Custom loop range (Cmd+click on scrub bar)
+    // MARK: - Custom loop range (double-click)
 
     private func applyCustomLoop(inSeconds: Double, outSeconds: Double) {
         loopApplySerial += 1
@@ -1075,6 +960,38 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         scrubBar.loopOutValue = nil
         scrubBar.needsDisplay = true
         clearCustomLoop()
+    }
+
+    /// Double-click on the video marks a loop point at the current playhead position.
+    private func loopPointAtCurrentTime() {
+        let seconds = queuePlayer?.currentTime().seconds ?? scrubBar.value
+        guard seconds.isFinite else { return }
+        handleLoopPointInput(at: seconds)
+    }
+
+    /// One state machine for both surfaces: pending point → complete pair → clear.
+    private func handleLoopPointInput(at seconds: Double) {
+        if scrubBar.loopInValue != nil, scrubBar.loopOutValue != nil {
+            // Complete pair — clear it; the next double-click starts a fresh loop.
+            scrubBar.loopInValue = nil
+            scrubBar.loopOutValue = nil
+            scrubBar.needsDisplay = true
+            clearCustomLoop()
+            return
+        }
+        if let inValue = scrubBar.loopInValue {
+            let lo = min(inValue, seconds)
+            let hi = max(inValue, seconds)
+            // Below this span the looper would churn items faster than a frame.
+            guard hi - lo >= 0.1 else { return }
+            scrubBar.loopInValue = lo
+            scrubBar.loopOutValue = hi
+            scrubBar.needsDisplay = true
+            applyCustomLoop(inSeconds: lo, outSeconds: hi)
+            return
+        }
+        scrubBar.loopInValue = seconds
+        scrubBar.needsDisplay = true
     }
 
     private func applyFrameTiming() {
@@ -1129,55 +1046,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         window.level = .normal
     }
 
-    // MARK: - Overlay, drop, rate HUD
-
-    private func handleMouseMoved(_ event: NSEvent) {
-        showControls()
-        guard let content = window?.contentView else { return }
-        let p = content.convert(event.locationInWindow, from: nil)
-        if p.y <= Self.controlsBarHeight + 8 {
-            hideControlsWork?.cancel()
-            return
-        }
-        scheduleHideControls()
-    }
-
-    private func showControls() {
-        hideControlsWork?.cancel()
-        guard let bar = controlsBar else { return }
-        bar.isHidden = false
-        NSAnimationContext.runAnimationGroup { ctx in
-            ctx.duration = 0.16
-            bar.animator().alphaValue = 1
-        }
-    }
-
-    private func scheduleHideControls(delay: TimeInterval? = nil) {
-        if isScrubbing || scrollScrubActive || mediaHoldScrubActive { return }
-        hideControlsWork?.cancel()
-        let wait = delay ?? Self.controlsHideDelay
-        let work = DispatchWorkItem { [weak self] in
-            self?.hideControls()
-        }
-        hideControlsWork = work
-        DispatchQueue.main.asyncAfter(deadline: .now() + wait, execute: work)
-    }
-
-    private func hideControls() {
-        if isScrubbing || scrollScrubActive || mediaHoldScrubActive { return }
-        guard let bar = controlsBar else { return }
-        NSAnimationContext.runAnimationGroup({ ctx in
-            ctx.duration = 0.22
-            bar.animator().alphaValue = 0
-        }, completionHandler: { [weak self] in
-            MainActor.assumeIsolated {
-                guard let self, !self.isScrubbing, !self.scrollScrubActive, !self.mediaHoldScrubActive else { return }
-                if self.controlsBar.alphaValue < 0.05 {
-                    self.controlsBar.isHidden = true
-                }
-            }
-        })
-    }
+    // MARK: - Drop, rate HUD
 
     private func handleDroppedURLs(_ urls: [URL]) {
         guard let first = urls.first else { return }
@@ -1222,7 +1091,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
         bootPlayerFast()
         slamOpaqueFront()
-        showControls()
     }
 
     private func flashRate() {
@@ -1293,7 +1161,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if event.phase == .began || (!scrollScrubActive && mediaDelta != 0) {
             if !scrollScrubActive {
                 scrollScrubActive = true
-                showControls()
                 scrubStarted()
                 if isMouse {
                     pauseForWheelScrubIfNeeded()
@@ -1376,14 +1243,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
                 self.pausedForWheelScrub = false
                 self.queuePlayer?.playImmediately(atRate: self.currentRate)
             }
-            self.scheduleHideControls()
         }
     }
 
     private func scrubStarted() {
         isScrubbing = true
         lastCoarseSeekAt = 0
-        showControls()
     }
 
     private func scrubValueChanged(_ seconds: Double) {
@@ -1408,7 +1273,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             }
         }
         updateTimeLabels(current: seconds)
-        scheduleHideControls()
     }
 
     private func setScrubBarTime(_ seconds: Double, forceRedraw: Bool = false) {
@@ -1658,8 +1522,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     /// Hold F7/F9 / arrows / media rewind-fast: display-link shuttle, no extra clicks.
     private func startHoldScrub(forward: Bool) {
         guard hasActivePlayback else { return }
-        showControls()
-        hideControlsWork?.cancel()
         scrollEndWork?.cancel()
         scrollEndWork = nil
         mediaHoldScrubForward = forward
@@ -1704,7 +1566,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
                 self.pausedForWheelScrub = false
                 self.queuePlayer?.playImmediately(atRate: self.currentRate)
             }
-            self.scheduleHideControls()
         }
     }
 
@@ -1732,8 +1593,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         applyVolume(newVol)
         volumeSlider.value = Double(newVol)
         volumeSlider.needsDisplay = true
-        showControls()
-        scheduleHideControls()
     }
 
     private func toggleMute() {
@@ -1768,8 +1627,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         flashRate()
     }
 
-    /// 1 — toggle 50% / 100% speed.
-    private func toggleHalfSpeed() {
+    /// 1 — toggle 50% / 100% speed. The Slo-Mo button passes flashHUD: false to stay silent.
+    private func toggleHalfSpeed(flashHUD: Bool = true) {
         if abs(currentRate - 0.5) < 0.001 {
             currentRate = 1.0
         } else {
@@ -1778,13 +1637,16 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         if let player = queuePlayer, player.rate != 0 {
             player.rate = currentRate
         }
-        flashRate()
+        if flashHUD {
+            flashRate()
+        } else {
+            updateSlomoLabel()
+        }
     }
 
-    /// Slo-Mo button — same half-speed toggle as the "1" key.
+    /// Slo-Mo button — same half-speed toggle as the "1" key, but no HUD flash.
     private func toggleSlomo() {
-        toggleHalfSpeed()
-        updateSlomoLabel()
+        toggleHalfSpeed(flashHUD: false)
     }
 
     private func updateSlomoLabel() {
@@ -1841,8 +1703,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     func windowDidBecomeKey(_ notification: Notification) {
         raiseIfKey()
         window?.orderFrontRegardless()
-        showControls()
-        scheduleHideControls()
         MediaKeys.shared.refreshNowPlaying()
     }
 
@@ -1890,8 +1750,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         queuedSeekSeconds = nil
         queuedSeekCompletion = nil
         arrowHoldKeys.removeAll()
-        hideControlsWork?.cancel()
-        hideControlsWork = nil
         rateHUDHideWork?.cancel()
         rateHUDHideWork = nil
         AssetCache.cancelLoads(for: videoURL)
