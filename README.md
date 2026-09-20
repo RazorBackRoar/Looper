@@ -28,7 +28,7 @@ Double-click or **Open With** from Finder. Set as the default player with Get In
 - **Instant open** — parallel size + playable probe; native resolution window
 - **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All; closing the last window quits the app. Menu-bar extra lists open windows, recent files, and **Quit Looper** (`⌘Q`) while a loop is open.
 - **Multi-window** — cascade placement + per-file frame memory
-- **QuickTime-style scrub** — transparent overlay that auto-hides; scroll to seek without pausing
+- **Glass-capsule timeline** — scrub bar in a rounded capsule fixed beneath the video (never overlays the picture); scroll to seek
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
 - **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR only when the file is HDR
 - **Formats** — `mp4`, `mov`, `m4v` via AVFoundation. `mkv` is registered for Open With but often cannot play (no FFmpeg)
@@ -54,13 +54,11 @@ Focus the video window first.
 | **F7** / **F9** | Hold to scrub backward / forward; release to stop |
 | **Volume up / down / mute** | Looper volume (not system volume) |
 | **M** | Mute / unmute |
-| **1** | Toggle 50% ↔ 100% speed (rate flashes on screen) |
+| **1** | Toggle 50% ↔ 100% speed (shown on the speed circle) |
 | **L** | Rotate counter-clockwise 90° (display only) |
 | **Return** | Close this window |
-| **[** / **]** | Slower / faster (0.25× steps; rate flashes on screen) |
 | **0** | Reset speed to 100% |
 | **←** / **→** | Scrub rewind / forward (hold to scrub continuously across clip) |
-| **Shift + ← / →** | Fast scrub rewind / forward |
 | **↑** / **↓** | Volume up / down |
 
 Scroll on the video: up/right = forward · down/left = rewind.
