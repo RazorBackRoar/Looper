@@ -206,6 +206,46 @@ final class LooperLogicTests: XCTestCase {
     }
 }
 
+@MainActor
+final class MenuBarMinimizationTests: XCTestCase {
+    private func makeWindow() -> MenuBarPlayerWindow {
+        MenuBarPlayerWindow(
+            contentRect: NSRect(x: 0, y: 0, width: 320, height: 240),
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
+            backing: .buffered,
+            defer: false)
+    }
+
+    func testTitlebarIsTransparent() {
+        let window = makeWindow()
+        XCTAssertTrue(window.styleMask.contains(.fullSizeContentView))
+        XCTAssertTrue(window.titlebarAppearsTransparent)
+        XCTAssertLessThan(window.contentLayoutRect.height, window.contentView!.bounds.height)
+    }
+
+    func testHiddenWindowsDoNotQuitTheApp() {
+        guard let delegate = NSApp.delegate as? AppDelegate else { return XCTFail("missing app delegate") }
+        XCTAssertFalse(delegate.applicationShouldTerminateAfterLastWindowClosed(NSApp))
+    }
+
+    func testMinimizeHidesWindowWithoutDockAndCanRestore() {
+        let window = makeWindow()
+        defer { window.orderOut(nil) }
+
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.isVisible)
+        guard let yellowButton = window.standardWindowButton(.miniaturizeButton) else {
+            return XCTFail("missing minimize button")
+        }
+        yellowButton.performClick(nil)
+        XCTAssertFalse(window.isVisible)
+        XCTAssertFalse(window.isMiniaturized)
+
+        window.makeKeyAndOrderFront(nil)
+        XCTAssertTrue(window.isVisible)
+    }
+}
+
 // MARK: - Metadata parsing
 
 final class VideoMetadataParserTests: XCTestCase {

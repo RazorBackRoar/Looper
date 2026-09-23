@@ -141,7 +141,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
-        true
+        false
     }
 
     func applicationShouldTerminate(_ sender: NSApplication) -> NSApplication.TerminateReply {
@@ -191,6 +191,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         let windowItem = NSMenuItem()
         let windowMenu = NSMenu(title: "Window")
         windowMenu.addItem(withTitle: "Close", action: #selector(NSWindow.performClose(_:)), keyEquivalent: "w")
+        windowMenu.addItem(withTitle: "Minimize to Menu Bar", action: #selector(NSWindow.performMiniaturize(_:)), keyEquivalent: "m")
         windowMenu.addItem(.separator())
         windowMenu.addItem(withTitle: "Bring All to Front", action: #selector(NSApplication.arrangeInFront(_:)), keyEquivalent: "")
         windowItem.submenu = windowMenu
@@ -225,6 +226,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         rebuildStatusMenu()
     }
 
+    @MainActor func refreshWindowMenu() {
+        if statusItem != nil { rebuildStatusMenu() }
+    }
+
     @MainActor private func rebuildStatusMenu() {
         let menu = NSMenu()
 
@@ -240,7 +245,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         } else {
             for player in players {
                 let title = player.window?.title ?? player.videoURL.lastPathComponent
-                let item = NSMenuItem(title: title, action: #selector(focusPlayerWindow(_:)), keyEquivalent: "")
+                let label = player.window?.isVisible == false ? "\(title) (Hidden)" : title
+                let item = NSMenuItem(title: label, action: #selector(focusPlayerWindow(_:)), keyEquivalent: "")
                 item.target = self
                 item.representedObject = player
                 item.state = player.window?.isKeyWindow == true ? .on : .off

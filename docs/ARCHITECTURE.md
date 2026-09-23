@@ -4,8 +4,9 @@ Developer map for the native macOS gapless video player (AppKit + AVFoundation).
 
 Looper is an **accessory document app** (hidden from the Dock via `LSUIElement`;
 Finder Open With / Get Info → Change All). Each open file gets its own resizable
-window. Closing the last window quits. A menu-bar extra lists open windows,
-recent files, and Quit (`⌘Q`) while any loop is open.
+window. Yellow or ⌘M hides that window in the menu-bar list without using the Dock;
+select its title there to restore it. Closing the last player window quits.
+The menu-bar extra lists open windows, recent files, and Quit (`⌘Q`).
 
 ## Module layout
 
@@ -13,7 +14,7 @@ recent files, and Quit (`⌘Q`) while any loop is open.
 | ------ | ------ |
 | `Looper/main.swift` | Entry; sets `.accessory` activation policy |
 | `Looper/AppDelegate.swift` | `LocalVideoURL` filter; multi-window open/dedupe/cascade; menus, status item, recents; ⌘Q monitor; quit rules |
-| `Looper/VideoPlayer.swift` | Everything per-window: `PlayerWindowLayout` + `PlayerTimelineMath` (pure math), `PlayerLayerView`, `VideoScrubBar`, `CircleControl` controls, `VideoScrollView`, `FileDropView`, `VideoPlayerWindowController` |
+| `Looper/VideoPlayer.swift` | Everything per-window: `PlayerWindowLayout` + `PlayerTimelineMath` (pure math), `PlayerLayerView`, `VideoScrubBar`, `CircleControl` controls, `VideoScrollView`, `FileDropView`, `MenuBarPlayerWindow`, `VideoPlayerWindowController` |
 | `Looper/AssetCache.swift` | Warm `AVURLAsset` / poster / native-size / fps / HDR cache (~1 GB budget) + per-URL load-task registry |
 | `Looper/MediaKeys.swift` | `MediaKeyHandling` protocol; remote commands + F7/F8/F9 + volume keys via system-defined events; Now Playing |
 | `Looper/PlaybackFormatting.swift` | Time/rate strings; `PlaybackScrubMath` (mouse/trackpad/hold step math) |
@@ -21,7 +22,7 @@ recent files, and Quit (`⌘Q`) while any loop is open.
 | `Looper/VideoInfoView.swift` | Right-hand inspector: fixed-schema sections + More Details disclosure |
 | `Looper/WindowFrameStore.swift` | Per-file window frame + recents order in `UserDefaults` (capped, legacy-key migration) |
 | `Looper/Info.plist` | `LSUIElement`; document types (mp4/mov/m4v/mkv) |
-| `LooperTests/LooperSmokeTests.swift` | 7 test classes — pure math, parsers, session races, real `NSEvent` scrub-bar tests |
+| `LooperTests/LooperSmokeTests.swift` | 8 test classes — pure math, parsers, session races, menu-bar minimize/restore, real `NSEvent` scrub-bar tests |
 | `scripts/build-mac.sh` | Release pipeline → `build/Release/Looper.dmg` |
 | `scripts/generate-icon.py` | `IconSource.png` → `Looper.icns` + asset catalog (uv + Pillow) |
 | `scripts/install-to-applications.sh` | Optional manual install; not wired into the build |
@@ -118,10 +119,16 @@ drives, clamped to screen and the 320×180 video min. `applyNativeWindowSize`
 fits native pixels to the screen (20 pt inset), prefers the saved origin
 (top-edge anchored), else cascade.
 
-The window is titled/closable/resizable, never minimized, tabbing disallowed,
+The window is titled/closable/miniaturizable/resizable, tabbing disallowed,
 `isReleasedWhenClosed = false`, `isRestorable = false`, `animationBehavior =
 .none`, and sits at `.floating` **only while key** (defeats Finder clip-through)
-then drops to `.normal`.
+then drops to `.normal`. `MenuBarPlayerWindow` overrides both `miniaturize`
+(the yellow button) and `performMiniaturize` (menu/keyboard) to order the
+window out instead of sending it to the Dock; the retained controller stays in
+the status-item list, which restores it on selection. The title bar is
+transparent with `.fullSizeContentView`, so video shows beneath the controls;
+frame sizing accounts for `contentLayoutRect`'s title-bar inset, while the
+inspector begins below it.
 
 The capsule is `NSGlassEffectView` (`.clear`, interactive on macOS 27+) on
 macOS 26+, else a dark `NSVisualEffectView` (`.hudWindow`). Time labels are
@@ -225,11 +232,11 @@ xcodebuild -project Looper.xcodeproj -scheme Looper \
 ```
 
 Do not override DerivedData — the default settings keep app + XCTest indexing
-intact. Tests live in one file, 7 classes: URL filter, time/rate formatting,
+intact. Tests live in one file, 8 classes: URL filter, time/rate formatting,
 frame store caps/recents, cache store/cancel, scrub math, ISO 6709 parsing, an
 end-to-end `AVAssetWriter` MOV through `VideoMetadataReader`, session
-generation races, window-layout math, loop-wrap math, and real-`NSEvent`
-scrub-bar click sequences.
+generation races, window-layout math, loop-wrap math, yellow-button menu-bar
+hide/restore, transparent title-bar setup, and real-`NSEvent` scrub-bar clicks.
 
 Not covered by tests: playback/seek/loop runtime, media keys, on-screen
 geometry, drag & drop — validate manually on macOS.
@@ -238,8 +245,8 @@ geometry, drag & drop — validate manually on macOS.
 
 Rules the code enforces — do not violate when changing Looper:
 
-1. Accessory app: never in the Dock, never minimized; last window close quits;
-   no persistence agents.
+1. Accessory app: never in the Dock; yellow/⌘M hides a window in the menu-bar
+   list, but only closing the last player window quits; no persistence agents.
 2. Click on the video never pauses; Space toggles; Return closes only the key
    window; ⌘Q quits.
 3. The timeline lives in the footer capsule — never overlays the picture.

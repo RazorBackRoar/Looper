@@ -554,6 +554,23 @@ private final class FileDropView: NSView {
 
 // MARK: - Player window
 
+final class MenuBarPlayerWindow: NSWindow {
+    override init(contentRect: NSRect, styleMask: NSWindow.StyleMask, backing: NSWindow.BackingStoreType, defer flag: Bool) {
+        super.init(contentRect: contentRect, styleMask: styleMask.union(.fullSizeContentView), backing: backing, defer: flag)
+        titlebarAppearsTransparent = true
+        titlebarSeparatorStyle = .none
+    }
+
+    override func miniaturize(_ sender: Any?) {
+        orderOut(sender)
+        (NSApp.delegate as? AppDelegate)?.refreshWindowMenu()
+    }
+
+    override func performMiniaturize(_ sender: Any?) {
+        miniaturize(sender)
+    }
+}
+
 /// Maxed local player: instant open, aggressive scrub, gapless loop. Never minimizes to Dock.
 final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, MediaKeyHandling {
     private(set) var videoURL: URL
@@ -628,7 +645,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         // Temporary content rect — replaced with native size before the window is shown.
         let initialRect = NSRect(x: initialCascadePoint.x, y: initialCascadePoint.y, width: 640, height: 360)
 
-        let window = NSWindow(
+        let window = MenuBarPlayerWindow(
             contentRect: initialRect,
             styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
@@ -779,6 +796,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         let circle = PlayerWindowLayout.circleDiameter
         separatorWidthConstraint = infoSeparator.widthAnchor.constraint(equalToConstant: 0)
         infoWidthConstraint = infoColumn.widthAnchor.constraint(equalToConstant: 0)
+        let visibleTop = (window.contentLayoutGuide as? NSLayoutGuide)?.topAnchor ?? content.topAnchor
         NSLayoutConstraint.activate([
             playerColumn.leadingAnchor.constraint(equalTo: content.leadingAnchor),
             playerColumn.topAnchor.constraint(equalTo: content.topAnchor),
@@ -828,12 +846,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             infoButton.widthAnchor.constraint(equalToConstant: circle),
             infoButton.heightAnchor.constraint(equalToConstant: circle),
 
-            infoSeparator.topAnchor.constraint(equalTo: content.topAnchor),
+            infoSeparator.topAnchor.constraint(equalTo: visibleTop),
             infoSeparator.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             infoSeparator.trailingAnchor.constraint(equalTo: infoColumn.leadingAnchor),
             separatorWidthConstraint,
 
-            infoColumn.topAnchor.constraint(equalTo: content.topAnchor),
+            infoColumn.topAnchor.constraint(equalTo: visibleTop),
             infoColumn.bottomAnchor.constraint(equalTo: content.bottomAnchor),
             infoColumn.trailingAnchor.constraint(equalTo: content.trailingAnchor),
             infoWidthConstraint,
@@ -1002,10 +1020,21 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         return s.height > 0 ? s.width / s.height : 0
     }
 
+    private var titlebarInset: CGFloat {
+        guard let window, let content = window.contentView else { return 0 }
+        return max(0, content.bounds.height - window.contentLayoutRect.height)
+    }
+
     /// Title bar + any real frame chrome, measured rather than hard-coded.
     private var frameChromeHeight: CGFloat {
         guard let window else { return 0 }
-        return window.frameRect(forContentRect: .zero).height
+        return window.frameRect(forContentRect: .zero).height + titlebarInset
+    }
+
+    private func frameRect(forVideoContentSize size: CGSize) -> NSRect {
+        guard let window else { return NSRect(origin: .zero, size: size) }
+        let fullContent = CGSize(width: size.width, height: size.height + titlebarInset)
+        return window.frameRect(forContentRect: NSRect(origin: .zero, size: fullContent))
     }
 
     private func updateMinSize() {
@@ -1018,7 +1047,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         let minContent = PlayerWindowLayout.contentSize(
             videoSize: CGSize(width: PlayerWindowLayout.minVideoWidth, height: minVideoH),
             inspectorOpen: infoOpen)
-        window.minSize = window.frameRect(forContentRect: NSRect(origin: .zero, size: minContent)).size
+        window.minSize = frameRect(forVideoContentSize: minContent).size
     }
 
     /// Size the window to the clip’s native resolution (scaled down only to fit the screen).
@@ -1040,7 +1069,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         updateMinSize()
 
         let contentSize = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: infoOpen)
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+        var frame = frameRect(forVideoContentSize: contentSize)
 
         // Prefer saved origin if we have one; otherwise cascade.
         if let saved = WindowFrameStore.loadFrame(for: videoURL) {
@@ -1143,7 +1172,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
                     source: rotatedSourceSize, maxWidth: maxVideoW, maxHeight: maxVideoH)
                 lastVideoSize = fitted
                 let content = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: true)
-                frame.size = window.frameRect(forContentRect: NSRect(origin: .zero, size: content)).size
+                frame.size = frameRect(forVideoContentSize: content).size
                 frame.origin.y = window.frame.maxY - frame.height // keep top edge
             }
             updateMinSize()
@@ -1665,9 +1694,17 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let commandHeld = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
-        if event.type == .keyDown, commandHeld, event.charactersIgnoringModifiers?.lowercased() == "q" {
-            NSApp.terminate(nil)
-            return true
+        if event.type == .keyDown, commandHeld {
+            switch event.charactersIgnoringModifiers?.lowercased() {
+            case "q":
+                NSApp.terminate(nil)
+                return true
+            case "m":
+                if !event.isARepeat { window?.performMiniaturize(nil) }
+                return true
+            default:
+                break
+            }
         }
 
         if isNonPlayerResponder(window?.firstResponder) {
@@ -1924,7 +1961,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         updateMinSize()
 
         let contentSize = PlayerWindowLayout.contentSize(videoSize: fitted, inspectorOpen: infoOpen)
-        var frame = window.frameRect(forContentRect: NSRect(origin: .zero, size: contentSize))
+        var frame = frameRect(forVideoContentSize: contentSize)
         let old = window.frame
         frame.origin.x = old.midX - frame.width / 2
         frame.origin.y = old.midY - frame.height / 2
@@ -1939,6 +1976,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     func windowDidBecomeKey(_ notification: Notification) {
         raiseIfKey()
         window?.orderFrontRegardless()
+        (NSApp.delegate as? AppDelegate)?.refreshWindowMenu()
         MediaKeys.shared.refreshNowPlaying()
     }
 
@@ -1961,7 +1999,8 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         guard aspect > 0 else { return proposed }
         if infoOpen { infoGeometryDirty = true }
 
-        let proposedContent = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: proposed)).size
+        var proposedContent = sender.contentRect(forFrameRect: NSRect(origin: .zero, size: proposed)).size
+        proposedContent.height -= titlebarInset
         let inspectorAlloc = infoOpen ? PlayerWindowLayout.inspectorAllocation : 0
         let visible = (sender.screen ?? NSScreen.main)?.visibleFrame.insetBy(dx: 8, dy: 8)
             ?? NSRect(x: 0, y: 0, width: 10_000, height: 10_000)
@@ -1974,12 +2013,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             lastVideoSize: lastVideoSize,
             inspectorOpen: infoOpen,
             maxVideoSize: maxVideo)
-        return sender.frameRect(forContentRect: NSRect(origin: .zero, size: corrected)).size
+        return frameRect(forVideoContentSize: corrected).size
     }
 
     func windowDidResize(_ notification: Notification) {
         if !isUpdatingLayout, let surface = playerSurface {
-            lastVideoSize = surface.bounds.size
+            lastVideoSize = CGSize(width: surface.bounds.width, height: max(64, surface.bounds.height - titlebarInset))
         }
         saveWindowFrame()
     }

@@ -26,8 +26,9 @@ Double-click or **Open With** from Finder. Set as the default player with Get In
 
 - **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
 - **Instant open** — parallel size + playable probe; native resolution window
-- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All; closing the last window quits the app. Menu-bar extra lists open windows, recent files, and **Quit Looper** (`⌘Q`) while a loop is open.
+- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All. Yellow or ⌘M hides a video in the menu-bar list; select it there to restore. Closing the last window quits the app. The menu-bar extra lists open windows, recent files, and **Quit Looper** (`⌘Q`) while a loop is open.
 - **Multi-window** — cascade placement + per-file frame memory
+- **Transparent title bar** — video shows behind the window controls instead of a solid gray strip
 - **Glass-capsule timeline** — scrub bar in a rounded capsule fixed beneath the video (never overlays the picture); scroll to seek
 - **Drop onto a window** — replaces the current clip; extra files open in new windows
 - **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR only when the file is HDR
@@ -49,6 +50,7 @@ Focus the video window first.
 | Key | Action |
 | ----- | -------- |
 | **⌘Q** | Quit Looper |
+| **⌘M** | Hide focused video in the menu bar; select it there to restore |
 | **Space** | Pause / resume |
 | **F8** | Pause / resume (media key) |
 | **F7** / **F9** | Hold to scrub backward / forward; release to stop |
