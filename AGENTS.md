@@ -4,7 +4,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 ## Learned User Preferences
 
-- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Never minimize player windows to the Dock; close means that window is gone. While any loop is open, a menu-bar extra lists open windows, Open Recent, and Quit (`⌘Q`).
+- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Player windows have all three traffic lights including minimize (yellow), which sends the window to the Dock like any normal window; close means that window is gone. While any loop is open, a menu-bar extra lists open windows, Open Recent, and Quit (`⌘Q`).
 - Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar. Do not use a window pop/zoom-open animation; Finder’s thumbnail zoom can clip through the player on first open.
 - Play content at the clip’s native fps (30 stays 30, 60 stays 60). Present on the monitor’s refresh: 30fps on 60Hz holds frames 2:1, 60fps on 60Hz is 1:1, and the same idea on 120Hz ProMotion. Drive the playhead from the display link (not a clip-fps timer) so it doesn’t rubber-band. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
 - Spacebar pauses/unpauses; clicking the video must never pause. Return closes only the focused player window, not every open video.

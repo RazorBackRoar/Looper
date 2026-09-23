@@ -630,7 +630,7 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
         let window = NSWindow(
             contentRect: initialRect,
-            styleMask: [.titled, .closable, .resizable],
+            styleMask: [.titled, .closable, .miniaturizable, .resizable],
             backing: .buffered,
             defer: true
         )
