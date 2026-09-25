@@ -4,7 +4,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 
 ## Learned User Preferences
 
-- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Player windows have all three traffic lights and a transparent title bar showing video beneath it, never a flat gray bar. Yellow or ⌘M hides that video in the menu-bar window list without putting it in the Dock, and selecting it there restores it. Close means that window is gone. While any loop is open, a menu-bar extra lists open windows, Open Recent, and Quit (`⌘Q`).
+- Accessory app (`LSUIElement = true`, `.accessory` activation policy). When a video opens up, the Looper icon never shows on the Dock and forever stays hidden. Closes cleanly when the last player window is closed. Player windows have all three traffic lights and a transparent title bar showing video beneath it, never a flat gray bar. Yellow or ⌘M hides that video in the menu-bar window list without putting it in the Dock; hiding removes the picture only — playback keeps running and audio stays live at the window's current volume/mute — and selecting the title there restores it. Close means that window is gone. While any loop is open, a menu-bar extra lists open windows, Open Recent, and Quit (`⌘Q`).
 - Push scrub, load, and double-click open as hard as possible on the M5 Pro / 64GB machine — instant playable start is the bar. Do not use a window pop/zoom-open animation; Finder’s thumbnail zoom can clip through the player on first open.
 - Play content at the clip’s native fps (30 stays 30, 60 stays 60). Present on the monitor’s refresh: 30fps on 60Hz holds frames 2:1, 60fps on 60Hz is 1:1, and the same idea on 120Hz ProMotion. Drive the playhead from the display link (not a clip-fps timer) so it doesn’t rubber-band. Base two-finger scrub on clip duration, not refresh rate; no inertial scrub, and keep playing while scrubbing.
 - Spacebar pauses/unpauses; clicking the video must never pause. Return closes only the focused player window, not every open video.
@@ -28,7 +28,7 @@ Guidance for agents in this repository. Use with `../AGENTS.md`.
 - Quit when the last player window closes so Finder can replace `Looper.app`. Do not leave a hidden process running. No launchd agent.
 - Gatekeeper/quarantine can block Open With on ad-hoc builds or quarantined downloads — clear app quarantine on install; user may need Open Anyway for quarantined videos.
 - Often plays multiple videos at once (~6 windows) — keep multi-window performance in mind.
-- `LooperTests` needs an Xcode target dependency on Looper plus `TestTargetID` or `import Looper` fails. AssetCache tests must use `loadFrameRate`/`loadContainsHDR` (or the sync `storeNativeSize`/`storePoster` APIs), not invented `storeFPS`/`cachedFPS`/`storeHDR`/`cachedHDR`.
+- `LooperTests` needs an Xcode target dependency on Looper plus `TestTargetID` or `import Looper` fails. AssetCache tests must use `loadFrameRate`/`loadContainsHDR` (or the sync `storeNativeSize` API), not invented `storeFPS`/`cachedFPS`/`storeHDR`/`cachedHDR`.
 
 ## Jules Repository Contract
 

@@ -9,9 +9,6 @@ enum PlaybackFormatting {
         return String(format: "%d:%02d", m, s)
     }
 
-    static func formatRate(_ rate: Float) -> String {
-        String(format: "%g×", rate)
-    }
 }
 
 /// Mouse-wheel and hold-to-scan math. Clip length must never scale a mouse notch

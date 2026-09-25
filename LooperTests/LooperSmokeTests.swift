@@ -64,13 +64,6 @@ final class LooperLogicTests: XCTestCase {
         XCTAssertEqual(PlaybackFormatting.formatTime(-3), "0:00")
     }
 
-    func testFormatRate() {
-        XCTAssertEqual(PlaybackFormatting.formatRate(1), "1×")
-        XCTAssertEqual(PlaybackFormatting.formatRate(0.5), "0.5×")
-        XCTAssertEqual(PlaybackFormatting.formatRate(1.25), "1.25×")
-        XCTAssertEqual(PlaybackFormatting.formatRate(2), "2×")
-    }
-
     // MARK: - WindowFrameStore
 
     func testWindowFrameStoreSaveAndLoad() {
@@ -129,10 +122,6 @@ final class LooperLogicTests: XCTestCase {
 
         AssetCache.storeNativeSize(CGSize(width: 1, height: 1), for: url)
         XCTAssertEqual(AssetCache.cachedNativeSize(for: url), CGSize(width: 1920, height: 1080))
-
-        let poster = NSImage(size: NSSize(width: 100, height: 100))
-        AssetCache.storePoster(poster, for: url)
-        XCTAssertNotNil(AssetCache.cachedPoster(for: url))
     }
 
     func testAssetCacheCapsPersistedNativeSizes() {

@@ -602,7 +602,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
     private var lastCoarseSeekAt: CFAbsoluteTime = 0
     private var seekSerial = 0
     private var loopApplySerial = 0
-    private var didReveal = false
     private var scrollScrubActive = false
     private var scrollEndWork: DispatchWorkItem?
     private var scrollSeekWork: DispatchWorkItem?
@@ -1129,7 +1128,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         }
 
         player.playImmediately(atRate: currentRate)
-        didReveal = true
         slamOpaqueFront()
         MediaKeys.shared.refreshNowPlaying()
     }
@@ -1352,7 +1350,6 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
         didAttachPlayer = false
         didApplyNativeSize = false
         didResolveFrameRate = false
-        didReveal = false
         durationSeconds = 0
         displayQuarterTurns = 0
         playerSurface.rotationQuarterTurns = 0
@@ -1694,17 +1691,12 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
 
     private func handleKey(_ event: NSEvent) -> Bool {
         let commandHeld = event.modifierFlags.intersection(.deviceIndependentFlagsMask).contains(.command)
-        if event.type == .keyDown, commandHeld {
-            switch event.charactersIgnoringModifiers?.lowercased() {
-            case "q":
-                NSApp.terminate(nil)
-                return true
-            case "m":
-                if !event.isARepeat { window?.performMiniaturize(nil) }
-                return true
-            default:
-                break
-            }
+        // ⌘Q is handled by the app-level monitor in AppDelegate (plain ⌘ only,
+        // so ⌘⇧Q / ⌘⌥Q / ⌘⌃Q never quit). ⌘M must run before plain `m` = mute.
+        if event.type == .keyDown, commandHeld,
+           event.charactersIgnoringModifiers?.lowercased() == "m", !event.isARepeat {
+            window?.performMiniaturize(nil)
+            return true
         }
 
         if isNonPlayerResponder(window?.firstResponder) {

@@ -18,12 +18,6 @@ enum AssetCache {
         return c
     }()
 
-    private nonisolated(unsafe) static let posterCache: NSCache<NSString, NSImage> = {
-        let c = NSCache<NSString, NSImage>()
-        c.countLimit = 64
-        return c
-    }()
-
     private nonisolated(unsafe) static let sizeCache = NSCache<NSString, NSValue>()
     private nonisolated(unsafe) static let fpsCache = NSCache<NSString, NSNumber>()
     private nonisolated(unsafe) static let hdrCache = NSCache<NSString, NSNumber>()
@@ -96,14 +90,6 @@ enum AssetCache {
         )
         cache.setObject(asset, forKey: key, cost: 8 * 1_024 * 1_024)
         return asset
-    }
-
-    static func cachedPoster(for url: URL) -> NSImage? {
-        posterCache.object(forKey: url.standardizedFileURL.path as NSString)
-    }
-
-    static func storePoster(_ image: NSImage, for url: URL) {
-        posterCache.setObject(image, forKey: url.standardizedFileURL.path as NSString)
     }
 
     static func cachedNativeSize(for url: URL) -> CGSize? {

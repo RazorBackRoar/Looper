@@ -15,9 +15,9 @@ The menu-bar extra lists open windows, recent files, and Quit (`⌘Q`).
 | `Looper/main.swift` | Entry; sets `.accessory` activation policy |
 | `Looper/AppDelegate.swift` | `LocalVideoURL` filter; multi-window open/dedupe/cascade; menus, status item, recents; ⌘Q monitor; quit rules |
 | `Looper/VideoPlayer.swift` | Everything per-window: `PlayerWindowLayout` + `PlayerTimelineMath` (pure math), `PlayerLayerView`, `VideoScrubBar`, `CircleControl` controls, `VideoScrollView`, `FileDropView`, `MenuBarPlayerWindow`, `VideoPlayerWindowController` |
-| `Looper/AssetCache.swift` | Warm `AVURLAsset` / poster / native-size / fps / HDR cache (~1 GB budget) + per-URL load-task registry |
+| `Looper/AssetCache.swift` | Warm `AVURLAsset` / native-size / fps / HDR cache (~1 GB budget) + per-URL load-task registry |
 | `Looper/MediaKeys.swift` | `MediaKeyHandling` protocol; remote commands + F7/F8/F9 + volume keys via system-defined events; Now Playing |
-| `Looper/PlaybackFormatting.swift` | Time/rate strings; `PlaybackScrubMath` (mouse/trackpad/hold step math) |
+| `Looper/PlaybackFormatting.swift` | Time strings; `PlaybackScrubMath` (mouse/trackpad/hold step math) |
 | `Looper/VideoMetadata.swift` | ISO 6709 parser, `VideoMetadataReader` (Sendable snapshot), lazy `VideoMetadataSession` |
 | `Looper/VideoInfoView.swift` | Right-hand inspector: fixed-schema sections + More Details disclosure |
 | `Looper/WindowFrameStore.swift` | Per-file window frame + recents order in `UserDefaults` (capped, legacy-key migration) |
@@ -125,7 +125,9 @@ The window is titled/closable/miniaturizable/resizable, tabbing disallowed,
 then drops to `.normal`. `MenuBarPlayerWindow` overrides both `miniaturize`
 (the yellow button) and `performMiniaturize` (menu/keyboard) to order the
 window out instead of sending it to the Dock; the retained controller stays in
-the status-item list, which restores it on selection. The title bar is
+the status-item list, which restores it on selection. Hiding stops only the
+picture — playback keeps running and audio stays live at the window's current
+volume/mute. The title bar is
 transparent with `.fullSizeContentView`, so video shows beneath the controls;
 frame sizing accounts for `contentLayoutRect`'s title-bar inset, while the
 inspector begins below it.
@@ -155,7 +157,7 @@ loading / unavailable / ready / partial states; chevron disclosure for details.
 ## Caches & persistence
 
 `AssetCache`: `NSCache` for `AVURLAsset` (count 128, ~1 GB cost @8 MB/entry) and
-posters (64); unbounded `sizeCache`/`fpsCache`/`hdrCache`; native sizes also
+unbounded `sizeCache`/`fpsCache`/`hdrCache`; native sizes also
 persist to `UserDefaults` (`Looper.nativeSizes`, 400→300 trim) for instant
 sizing on reopen. A `loadTasks[key][id]` registry powers
 `cancelLoads(for:)`/`cancelAllLoads` (the latter from
