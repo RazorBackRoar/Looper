@@ -1,106 +1,102 @@
 # Looper
 
-[![Download](https://img.shields.io/github/v/release/RazorBackRoar/Looper?style=for-the-badge&label=Download%20DMG&color=FF8C00)](https://github.com/RazorBackRoar/Looper/releases/latest)
-[![Version](https://img.shields.io/badge/version-1.1.1-blue?style=for-the-badge)](https://github.com/RazorBackRoar/Looper/releases/tag/v1.1.1)
+<p align="center">
+
+[![Download](https://img.shields.io/github/v/release/RazorBackRoar/Looper?style=for-the-badge&label=Download%20DMG&color=d32f2f)](https://github.com/RazorBackRoar/Looper/releases/latest)
 [![CI](https://img.shields.io/github/actions/workflow/status/RazorBackRoar/Looper/ci.yml?branch=main&style=for-the-badge&label=CI)](https://github.com/RazorBackRoar/Looper/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/license-MIT-blueviolet?style=for-the-badge)](LICENSE)
 [![Swift](https://img.shields.io/badge/Swift-F05138?style=for-the-badge&logo=swift&logoColor=white)](https://swift.org/)
-[![macOS](https://img.shields.io/badge/mac%20os-Apple%20Silicon-FF8C00?style=for-the-badge&logo=apple&logoColor=white)](https://support.apple.com/en-us/HT211814)
+[![AppKit](https://img.shields.io/badge/AppKit-5E5CE6?style=for-the-badge)](https://developer.apple.com/documentation/appkit)
+[![macOS](https://img.shields.io/badge/mac%20os-Apple%20Silicon-d32f2f?style=for-the-badge&logo=apple&logoColor=white)](https://support.apple.com/en-us/HT211814)
 
-<!-- Workspace Health Layer -->
-![Status](https://img.shields.io/badge/status-active-2ea44f?style=for-the-badge)
-![Tests](https://img.shields.io/badge/tests-present-2ea44f?style=for-the-badge)
-![Build](https://img.shields.io/badge/build-swift-F05138?style=for-the-badge)
+</p>
 
-**Minimal native macOS video player — gapless loop, instant open, QuickTime-style scrub.**
+**Native macOS video player with gapless looping.**
 
-Double-click or **Open With** from Finder. Set as the default player with Get Info → Change All. Multiple videos at once. Plays locally with AppKit + AVFoundation only.
+Double-click a file or use Finder **Open With**. Several videos can be open at once. Playback is local AppKit and AVFoundation. There is no Dock icon.
 
 <p align="center">
-  <a href="https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg"><strong>↓ Download Looper.dmg</strong></a>
+  <a href="https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg"><strong>Download Looper.dmg</strong></a>
   ·
   <a href="https://github.com/RazorBackRoar/Looper/releases">All releases</a>
 </p>
 
 ## Features
 
-- **Gapless looping** — `AVQueuePlayer` + `AVPlayerLooper`
-- **Instant open** — parallel size + playable probe; native resolution window
-- **Dockless document player** — Stays hidden from the Dock (`LSUIElement`); Finder Open With / Get Info → Change All. Yellow or ⌘M hides a video in the menu-bar list; select it there to restore. Closing the last window quits the app. The menu-bar extra lists open windows, recent files, and **Quit Looper** (`⌘Q`) while a loop is open.
-- **Multi-window** — cascade placement + per-file frame memory
-- **Transparent title bar** — video shows behind the window controls instead of a solid gray strip
-- **Glass-capsule timeline** — scrub bar in a rounded capsule fixed beneath the video (never overlays the picture); scroll to seek
-- **Drop onto a window** — replaces the current clip; extra files open in new windows
-- **Apple Silicon native** — arm64 only · zero external dependencies · HDR/EDR only when the file is HDR
-- **Formats** — `mp4`, `mov`, `m4v` via AVFoundation. `mkv` is registered for Open With but often cannot play (no FFmpeg)
+- Gapless loop with `AVQueuePlayer` and `AVPlayerLooper`
+- Opens at the video's native resolution after a parallel size and playable probe
+- Hidden from the Dock (`LSUIElement`). Yellow or ⌘M hides the focused window into the menu-bar list. Closing the last window quits
+- The menu-bar extra lists open windows, recent files, and **Quit Looper** (⌘Q)
+- Multiple windows, cascaded, with per-file frame memory
+- Transparent title bar so the picture sits behind the window controls
+- Scrub capsule under the video, not on top of it. Scroll to seek
+- Dropping a file on a window replaces that clip. Extra files in the same drop open new windows
+- Apple Silicon only. HDR/EDR only when the file is HDR
+- Plays `mp4`, `mov`, and `m4v`. `mkv` can be registered for Open With, and often will not play, because there is no FFmpeg
 
 ## Install
 
-1. Download [`Looper.dmg`](https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg)
-2. Open the DMG and drag **Looper.app** to `/Applications`
-3. First launch — right-click → **Open** if Gatekeeper prompts (ad-hoc signed build)
-4. Optional default: select a video → **Get Info** → Open with **Looper** → **Change All** (once per type: mp4, mov, m4v, …)
+macOS 14 or later on Apple Silicon.
 
-Requires macOS 14+ on Apple Silicon.
+1. Download [`Looper.dmg`](https://github.com/RazorBackRoar/Looper/releases/latest/download/Looper.dmg)
+2. Open the DMG and drag `Looper.app` to `/Applications`
+3. First launch: right-click the app and choose **Open** (ad-hoc signed build)
+4. Optional default player: select a video, **Get Info**, Open with **Looper**, **Change All**. Repeat per type (`mp4`, `mov`, `m4v`)
 
 ## Keyboard shortcuts
 
-Focus the video window first.
+Click the video window first.
 
 | Key | Action |
-| ----- | -------- |
-| **⌘Q** | Quit Looper |
-| **⌘M** | Hide focused video in the menu bar; select it there to restore |
-| **Space** | Pause / resume |
-| **F8** | Pause / resume (media key) |
-| **F7** / **F9** | Hold to scrub backward / forward; release to stop |
-| **Volume up / down / mute** | Looper volume (not system volume) |
-| **M** | Mute / unmute |
-| **1** | Toggle 50% ↔ 100% speed (shown on the speed circle) |
-| **L** | Rotate counter-clockwise 90° (display only) |
-| **Return** | Close this window |
-| **0** | Reset speed to 100% |
-| **←** / **→** | Scrub rewind / forward (hold to scrub continuously across clip) |
-| **↑** / **↓** | Volume up / down |
+| --- | --- |
+| ⌘Q | Quit Looper |
+| ⌘M | Hide the focused video in the menu bar. Select it there to restore |
+| Space or F8 | Pause / resume |
+| F7 / F9 | Hold to scrub backward / forward. Release to stop |
+| Volume keys | Looper volume, not system volume |
+| M | Mute / unmute |
+| 1 | Toggle 50% and 100% speed |
+| 0 | Reset speed to 100% |
+| L | Rotate the picture 90° counter-clockwise (display only) |
+| Return | Close this window |
+| ← / → | Scrub. Hold to keep moving, including across the loop point |
+| ↑ / ↓ | Volume up / down |
 
-Scroll on the video: up/right = forward · down/left = rewind.
-
-Drop a video onto a playing window to replace it. Extra files in the same drop open in new windows.
+Scroll on the video: up or right seeks forward. Down or left seeks backward.
 
 ## Development
 
-```zsh
-xcodebuild -project Looper.xcodeproj -scheme Looper -configuration Release \
-  -derivedDataPath build/DerivedData -arch arm64 build
-./scripts/install-to-applications.sh
-```
-
-Release DMG (shared `.razorcore` branding + locked DMG layout):
-
-```zsh
+```bash
+git clone https://github.com/RazorBackRoar/Looper.git
+cd Looper
 ./scripts/build-mac.sh
-# or from Apps/:  uv run --project .razorcore razorbuild Looper
 ```
 
-Output: `build/Release/Looper.dmg` (no loose `.app` in the repo).
-
-See [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md).
-
-## Set as default player
-
-1. Right-click a video → **Get Info**
-2. **Open With** → Looper → **Change All…**
+The package lands at `build/Release/Looper.dmg`. Looper is an Xcode project. `./scripts/build-mac.sh` is the release path.
 
 ## Docs
 
-- [BUILD_AND_RELEASE.md](BUILD_AND_RELEASE.md)
-- [CONTRIBUTING.md](CONTRIBUTING.md)
-- [SECURITY.md](SECURITY.md)
-- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [Architecture](docs/ARCHITECTURE.md)
+- [Build and release](BUILD_AND_RELEASE.md)
+- [Contributing](CONTRIBUTING.md)
+- [Security](SECURITY.md)
+- [Code of conduct](CODE_OF_CONDUCT.md)
 
 ## License
 
-MIT — see [LICENSE](LICENSE).
+MIT License. See [LICENSE](LICENSE).
+
 Copyright © 2026 RazorBackRoar
 
 If you need me, give me a holler.
+
+<!-- razorcore:runtime:start -->
+## Runtime Requirements
+
+For users:
+- Download the macOS `.dmg` or `.app` release. Xcode/Swift do not need to be installed.
+
+For developers:
+- Toolchain: Xcode on Apple Silicon.
+- Package: `./scripts/build-mac.sh`
+<!-- razorcore:runtime:end -->

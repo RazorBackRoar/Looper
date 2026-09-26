@@ -74,12 +74,11 @@ Looper/
 │   ├── generate-icon.py          # IconSource.png → icns + asset catalog (uv + Pillow)
 │   └── install-to-applications.sh# manual install opt-in (pkills, quarantine strip, lsregister)
 ├── docs/ARCHITECTURE.md          # authoritative architecture doc — keep in sync
-├── AGENTS.md                     # repo agent contract (user prefs + Jules rules)
+├── AGENTS.md                     # repo agent contract
 ├── README.md / BUILD_AND_RELEASE.md / CONTRIBUTING.md / CODE_OF_CONDUCT.md / SECURITY.md / LICENSE
 ├── IconSource.png, Looper.icns   # committed icon source + generated output
 ├── .github/workflows/ci.yml      # "CI" / quality job (macos-26): build + test
-├── .github/dependabot.yml        # github-actions weekly (Mon 09:00 Denver), grouped
-└── .jules/                       # Jules agent config (audit-branch program retired)
+└── .github/dependabot.yml        # github-actions weekly (Mon 09:00 Denver), grouped
 ```
 
 `build/`, `~/Desktop/Looper.dmg`, and `buildServer.json` (SourceKit-LSP config,
@@ -412,9 +411,8 @@ replace `/Applications/Looper.app`, overlay icns, ad-hoc re-sign,
 `xattr -cr` (strip quarantine so Open With works), `lsregister -f`. **Not** wired
 into the build.
 
-**Jules contract** (AGENTS.md): real-fix PRs only, no sentinel/bolt/palette audit
-branches, owner merges everything, macOS `quality` workflow is authoritative —
-Ubuntu CI can't exercise AppKit/AVFoundation.
+The macOS `quality` workflow is the build that matters. Ubuntu CI cannot
+exercise AppKit or AVFoundation.
 
 ---
 
