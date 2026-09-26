@@ -867,8 +867,11 @@ final class VideoPlayerWindowController: NSWindowController, NSWindowDelegate, M
             glass.cornerRadius = radius
             glass.contentView = row
             glass.translatesAutoresizingMaskIntoConstraints = false
-            if #available(macOS 27.0, *) {
-                glass.effectIsInteractive = true
+            // `effectIsInteractive` exists on the macOS 27 SDK and is absent
+            // from the macOS 26.5 SDK used in CI. Call it only when the setter exists.
+            let interactive = NSSelectorFromString("setEffectIsInteractive:")
+            if glass.responds(to: interactive) {
+                glass.setValue(true, forKey: "effectIsInteractive")
             }
             return glass
         }
